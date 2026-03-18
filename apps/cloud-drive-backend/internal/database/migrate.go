@@ -1,4 +1,4 @@
-package db
+package database
 
 import "cloud-drive-backend/internal/model"
 

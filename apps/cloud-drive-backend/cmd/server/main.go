@@ -1,14 +1,14 @@
 package main
 
 import (
-	"cloud-drive-backend/internal/pkg/db"
+	"cloud-drive-backend/internal/database"
 	"cloud-drive-backend/internal/router"
 	"log"
 	"os"
 )
 
 func main() {
-	db.InitDB()
+	database.InitDB()
 	r := router.SetUpRouter()
 
 	port := os.Getenv("PORT")
