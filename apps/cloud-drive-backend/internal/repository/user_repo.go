@@ -28,3 +28,12 @@ func (r *UserRepository) GetUserByName(username string) (*model.UserModel, error
 	}
 	return &user, nil
 }
+
+// 根据用户ID查询用户
+func (r *UserRepository) GetUserByID(userID uint) (*model.UserModel, error) {
+	var user model.UserModel
+	if err := r.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}

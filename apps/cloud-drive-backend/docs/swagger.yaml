@@ -1,0 +1,184 @@
+definitions:
+  dto.InitUploadFileReq:
+    properties:
+      chunk_size:
+        type: integer
+      file_hash:
+        type: string
+      file_name:
+        type: string
+      file_size:
+        type: integer
+      file_type:
+        type: string
+      folder_id:
+        type: integer
+      total_chunks:
+        type: integer
+    type: object
+  dto.LoginReq:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  dto.RegisterUserReq:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  response.Response:
+    properties:
+      code:
+        $ref: '#/definitions/response.ResponseCode'
+      data: {}
+      msg:
+        type: string
+    type: object
+  response.ResponseCode:
+    enum:
+    - 0
+    - 1001
+    - 1002
+    - 1003
+    - 1004
+    type: integer
+    x-enum-varnames:
+    - CodeSuccess
+    - CodeInvalidParam
+    - CodeUnauthorized
+    - CodeNotFound
+    - CodeServerError
+  vo.InitUploadFileResp:
+    properties:
+      uploaded_chunks:
+        items:
+          type: integer
+        type: array
+    type: object
+  vo.LoginResp:
+    properties:
+      token:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: 用户通过账号密码登录
+      parameters:
+      - description: 登录参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LoginReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回统一响应（code=0成功，code!=0失败；data包含token）
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/vo.LoginResp'
+              type: object
+      summary: 用户登录
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: 用户通过用户名、邮箱、密码注册
+      parameters:
+      - description: 注册参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/dto.RegisterUserReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 返回统一响应（code=0成功，code!=0失败；data可能为空）
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: 用户注册
+      tags:
+      - auth
+  /file/chunk:
+    post:
+      consumes:
+      - application/json
+      description: 上传文件分片（当前接口实现为占位逻辑，后续补齐分片参数解析与落库/合并）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功返回（code=0）
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: 未授权（缺少/无效 Authorization）
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 上传文件分片
+      tags:
+      - file
+  /file/init:
+    post:
+      consumes:
+      - application/json
+      description: 初始化文件分片上传任务，返回已上传分片列表（同hash任务会复用）
+      parameters:
+      - description: 初始化上传参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/dto.InitUploadFileReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功返回（code=0,data=vo.InitUploadFileResp）
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/vo.InitUploadFileResp'
+              type: object
+        "401":
+          description: 未授权（缺少/无效 Authorization）
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 初始化文件分片上传
+      tags:
+      - file
+swagger: "2.0"

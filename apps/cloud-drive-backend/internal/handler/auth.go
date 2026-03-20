@@ -6,6 +6,7 @@ import (
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/utils"
+	"cloud-drive-backend/internal/vo"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +26,15 @@ func (h *AuthHandler) Register(r *gin.RouterGroup) {
 	r.POST("/login", h.Login)
 }
 
+// RegisterUser godoc
+// @Summary 用户注册
+// @Description 用户通过用户名、邮箱、密码注册
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param data body dto.RegisterUserReq true "注册参数"
+// @Success 200 {object} response.Response{data=nil} "返回统一响应（code=0成功，code!=0失败；data可能为空）"
+// @Router /auth/register [post]
 func (h *AuthHandler) RegisterUser(c *gin.Context) {
 	// 注册用户
 	var req dto.RegisterUserReq
@@ -58,6 +68,15 @@ func (h *AuthHandler) RegisterUser(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// Login godoc
+// @Summary 用户登录
+// @Description 用户通过账号密码登录
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param data body dto.LoginReq true "登录参数"
+// @Success 200 {object} response.Response{data=vo.LoginResp} "返回统一响应（code=0成功，code!=0失败；data包含token）"
+// @Router /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	// 登录用户
 	var req dto.LoginReq
@@ -79,7 +98,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	// 返回成功响应
-	response.Success(c, gin.H{
-		"token": token,
+	response.Success(c, vo.LoginResp{
+		Token: token,
 	})
 }
