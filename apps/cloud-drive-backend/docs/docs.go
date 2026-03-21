@@ -114,7 +114,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "上传文件分片（当前接口实现为占位逻辑，后续补齐分片参数解析与落库/合并）",
+                "description": "上传文件分片",
                 "consumes": [
                     "application/json"
                 ],
@@ -203,14 +203,71 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/file/merge": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "合并上传的文件分片",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "file"
+                ],
+                "summary": "合并上传的文件分片",
+                "parameters": [
+                    {
+                        "description": "合并上传参数",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.MergeUploadedChunksReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功返回（code=0）",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权（缺少/无效 Authorization）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
         "dto.InitUploadFileReq": {
             "type": "object",
+            "required": [
+                "chunk_size",
+                "file_hash",
+                "file_name",
+                "file_size",
+                "file_type",
+                "total_chunks"
+            ],
             "properties": {
                 "chunk_size": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "file_hash": {
                     "type": "string"
@@ -219,7 +276,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "file_size": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "file_type": {
                     "type": "string"
@@ -228,7 +286,8 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "total_chunks": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -240,6 +299,18 @@ const docTemplate = `{
                 },
                 "username": {
                     "type": "string"
+                }
+            }
+        },
+        "dto.MergeUploadedChunksReq": {
+            "type": "object",
+            "required": [
+                "task_id"
+            ],
+            "properties": {
+                "task_id": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -256,6 +327,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "model.UploadStatus": {
+            "type": "string",
+            "enum": [
+                "uploading",
+                "completed"
+            ],
+            "x-enum-varnames": [
+                "UploadStatusUploading",
+                "UploadStatusCompleted"
+            ]
         },
         "response.Response": {
             "type": "object",
@@ -289,6 +371,12 @@ const docTemplate = `{
         "vo.InitUploadFileResp": {
             "type": "object",
             "properties": {
+                "status": {
+                    "$ref": "#/definitions/model.UploadStatus"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
                 "uploaded_chunks": {
                     "type": "array",
                     "items": {

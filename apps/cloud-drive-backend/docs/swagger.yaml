@@ -2,19 +2,29 @@ definitions:
   dto.InitUploadFileReq:
     properties:
       chunk_size:
+        minimum: 1
         type: integer
       file_hash:
         type: string
       file_name:
         type: string
       file_size:
+        minimum: 1
         type: integer
       file_type:
         type: string
       folder_id:
         type: integer
       total_chunks:
+        minimum: 1
         type: integer
+    required:
+    - chunk_size
+    - file_hash
+    - file_name
+    - file_size
+    - file_type
+    - total_chunks
     type: object
   dto.LoginReq:
     properties:
@@ -22,6 +32,14 @@ definitions:
         type: string
       username:
         type: string
+    type: object
+  dto.MergeUploadedChunksReq:
+    properties:
+      task_id:
+        minimum: 1
+        type: integer
+    required:
+    - task_id
     type: object
   dto.RegisterUserReq:
     properties:
@@ -32,6 +50,14 @@ definitions:
       username:
         type: string
     type: object
+  model.UploadStatus:
+    enum:
+    - uploading
+    - completed
+    type: string
+    x-enum-varnames:
+    - UploadStatusUploading
+    - UploadStatusCompleted
   response.Response:
     properties:
       code:
@@ -56,6 +82,10 @@ definitions:
     - CodeServerError
   vo.InitUploadFileResp:
     properties:
+      status:
+        $ref: '#/definitions/model.UploadStatus'
+      task_id:
+        type: integer
       uploaded_chunks:
         items:
           type: integer
@@ -127,7 +157,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 上传文件分片（当前接口实现为占位逻辑，后续补齐分片参数解析与落库/合并）
+      description: 上传文件分片
       produces:
       - application/json
       responses:
@@ -179,6 +209,36 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 初始化文件分片上传
+      tags:
+      - file
+  /file/merge:
+    post:
+      consumes:
+      - application/json
+      description: 合并上传的文件分片
+      parameters:
+      - description: 合并上传参数
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/dto.MergeUploadedChunksReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功返回（code=0）
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: 未授权（缺少/无效 Authorization）
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 合并上传的文件分片
       tags:
       - file
 swagger: "2.0"

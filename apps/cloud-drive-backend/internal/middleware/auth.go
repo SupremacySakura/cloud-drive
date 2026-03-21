@@ -16,7 +16,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		// 验证token
-		claims, err := utils.ParseToken(token)
+		claims, err := utils.ParseToken(token[7:])
 		if err != nil {
 			c.JSON(401, gin.H{"error": "无效的token"})
 			c.Abort()

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type IntSlice []int
@@ -66,7 +68,7 @@ type FileModel struct {
 	UserID    uint      `gorm:"not null" json:"user_id"`   // 所属用户ID
 	CreatedAt time.Time `json:"created_at"`                // 创建时间
 	UpdatedAt time.Time `json:"updated_at"`                // 更新时间
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"`   // 删除时间（软删除）
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`   // 删除时间（软删除）
 }
 
 type FolderModel struct {
@@ -76,8 +78,15 @@ type FolderModel struct {
 	UserID    uint      `gorm:"not null" json:"user_id"` // 所属用户ID
 	CreatedAt time.Time `json:"created_at"`              // 创建时间
 	UpdatedAt time.Time `json:"updated_at"`              // 更新时间
-	DeletedAt time.Time `gorm:"index" json:"deleted_at"` // 删除时间（软删除）
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"` // 删除时间（软删除）
 }
+
+type UploadStatus string
+
+const (
+	UploadStatusUploading UploadStatus = "uploading"
+	UploadStatusCompleted UploadStatus = "completed"
+)
 
 type UploadTask struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`                      // uploadId
@@ -90,7 +99,7 @@ type UploadTask struct {
 	FileType       string    `gorm:"not null" json:"file_type"`                 // 文件类型
 	FolderID       uint      `json:"folder_id"`                                 // 所属文件夹ID
 	UserID         uint      `gorm:"not null" json:"user_id"`                   // 所属用户ID
-	Status         string    `gorm:"not null" json:"status"`                    // uploading / completed
+	Status         UploadStatus `gorm:"not null" json:"status"`                    // uploading / completed
 	CreatedAt      time.Time `gorm:"not null" json:"created_at"`                // 创建时间
 	UpdatedAt      time.Time `gorm:"not null" json:"updated_at"`                // 更新时间
 }

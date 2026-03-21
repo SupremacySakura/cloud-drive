@@ -41,7 +41,6 @@ const onSubmit = async () => {
             username: form.value.username.trim(),
             password: form.value.password,
         })
-        console.log(res)
         if (typeof res?.code === 'number' && res.code !== 0) {
             errorMessage.value = res.msg || '登录失败'
             return
