@@ -31,6 +31,8 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/init", middleware.AuthMiddleware(), h.InitUploadFile)
 	r.POST("/chunk", middleware.AuthMiddleware(), h.UploadFileChunk)
 	r.POST("/merge", middleware.AuthMiddleware(), h.MergeUploadedChunks)
+	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
+	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
 }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
@@ -173,4 +175,66 @@ func (h *FileHandler) MergeUploadedChunks(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+// GetListByFolderIDAndUserID godoc
+// @Summary 获取文件夹下的文件列表
+// @Description 获取文件夹下的文件列表
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param folder_id query int true "文件夹ID"
+// @Param page query int true "页码"
+// @Param page_size query int true "每页数量"
+// @Success 200 {object} response.Response{data=[]dto.FileListItem} "成功返回（code=0,data=[]dto.FileListItem）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/list [get]
+func (h *FileHandler) GetListByFolderIDAndUserID(c *gin.Context) {
+	var req dto.GetListByFolderIDAndUserIDReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	list, err := h.FileService.GetListByFolderIDAndUserID(req.FolderID, userID, req.Page, req.PageSize)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, list)
+}
+
+// GetListCountByFolderIDAndUserID godoc
+// @Summary 获取文件夹下的文件数量
+// @Description 获取文件夹下的文件数量
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param folder_id query int true "文件夹ID"
+// @Success 200 {object} response.Response{data=int64} "成功返回（code=0,data=int64）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/list/count [get]
+func (h *FileHandler) GetListCountByFolderIDAndUserID(c *gin.Context) {
+	var req dto.GetListCountByFolderIDAndUserIDReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	count, err := h.FileService.GetListCountByFolderIDAndUserID(req.FolderID, userID)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, count)
 }

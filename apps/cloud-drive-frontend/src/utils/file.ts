@@ -1,4 +1,5 @@
 import { FileType } from "../types/file"
+import type { FileListItem } from "../services/types/file"
 
 /**
  * 格式化字节数为人类可读的字符串
@@ -44,4 +45,33 @@ export const iconForFile = (file: File) => {
     if (kind === FileType.Audio) return { icon: 'material-symbols:music-note', bg: 'bg-purple-100', fg: 'text-purple-600' }
     if (kind === FileType.Document) return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
     return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
+}
+
+export const iconForListItem = (item: Pick<FileListItem, 'type' | 'file_type'>) => {
+    if (item.type === 'folder') {
+        return { icon: 'material-symbols:folder', bg: 'bg-orange-100', fg: 'text-orange-600' }
+    }
+    const kind = item.file_type as FileType
+    if (kind === FileType.Video) return { icon: 'material-symbols:movie', bg: 'bg-blue-100', fg: 'text-blue-600' }
+    if (kind === FileType.Image) return { icon: 'material-symbols:image', bg: 'bg-red-100', fg: 'text-red-600' }
+    if (kind === FileType.Audio) return { icon: 'material-symbols:music-note', bg: 'bg-purple-100', fg: 'text-purple-600' }
+    if (kind === FileType.Document) return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
+    return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
+}
+
+export const typeLabelForListItem = (item: Pick<FileListItem, 'type' | 'file_type'>) => {
+    if (item.type === 'folder') return 'Folder'
+    const kind = item.file_type as FileType
+    if (kind === FileType.Image) return 'Image'
+    if (kind === FileType.Video) return 'Video'
+    if (kind === FileType.Audio) return 'Audio'
+    if (kind === FileType.Document) return 'Document'
+    return item.file_type || 'File'
+}
+
+export const formatTime = (value: string) => {
+    if (!value) return '-'
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return value
+    return d.toLocaleString()
 }

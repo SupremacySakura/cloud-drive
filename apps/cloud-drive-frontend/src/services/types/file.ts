@@ -26,3 +26,12 @@ export type UploadChunkRequest = {
 export type MergeUploadedChunksRequest = {
     task_id: number
 }
+
+export type FileListItem = {
+    id: number
+    name: string
+    type: 'folder' | 'file'
+    file_type: string
+    size: number
+    updated_at: string
+}

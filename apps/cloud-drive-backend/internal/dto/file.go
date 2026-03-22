@@ -1,5 +1,7 @@
 package dto
 
+import "time"
+
 type InitUploadFileReq struct {
 	FileName    string `json:"file_name" binding:"required"`
 	FileSize    uint64 `json:"file_size" binding:"required,min=1"`
@@ -18,4 +20,23 @@ type UploadChunkReq struct {
 
 type MergeUploadedChunksReq struct {
 	TaskID uint `json:"task_id" binding:"required,min=1"`
+}
+
+type FileListItem struct {
+	ID        uint      `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"` // file / folder
+	FileType  string    `json:"file_type,omitempty"`
+	Size      uint64    `json:"size,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type GetListByFolderIDAndUserIDReq struct {
+	FolderID uint `form:"folder_id"`
+	Page     int  `form:"page" binding:"min=1"`
+	PageSize int  `form:"page_size" binding:"min=1,max=100"`
+}
+
+type GetListCountByFolderIDAndUserIDReq struct {
+	FolderID uint `form:"folder_id"`
 }

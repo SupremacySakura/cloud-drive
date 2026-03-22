@@ -25,6 +25,8 @@ type FileService interface {
 	InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
 	UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader) error
 	MergeUploadedChunks(userID uint, taskID uint) error
+	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
+	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
 }
 
 type fileService struct {
@@ -188,3 +190,18 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	return nil
 }
 
+func (s *fileService) GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error) {
+	list, err := s.FileRepository.GetListByFolderIDAndUserID(folderID, userID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error) {
+	count, err := s.FileRepository.GetListCountByFolderIDAndUserID(folderID, userID)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}

@@ -1,4 +1,20 @@
 definitions:
+  dto.FileListItem:
+    properties:
+      file_type:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      size:
+        type: integer
+      type:
+        description: file / folder
+        type: string
+      updated_at:
+        type: string
+    type: object
   dto.InitUploadFileReq:
     properties:
       chunk_size:
@@ -209,6 +225,87 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 初始化文件分片上传
+      tags:
+      - file
+  /file/list:
+    get:
+      consumes:
+      - application/json
+      description: 获取文件夹下的文件列表
+      parameters:
+      - description: 文件夹ID
+        in: query
+        name: folder_id
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功返回（code=0,data=[]dto.FileListItem）
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/dto.FileListItem'
+                  type: array
+              type: object
+        "401":
+          description: 未授权（缺少/无效 Authorization）
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 获取文件夹下的文件列表
+      tags:
+      - file
+  /file/list/count:
+    get:
+      consumes:
+      - application/json
+      description: 获取文件夹下的文件数量
+      parameters:
+      - description: 文件夹ID
+        in: query
+        name: folder_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功返回（code=0,data=int64）
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  format: int64
+                  type: integer
+              type: object
+        "401":
+          description: 未授权（缺少/无效 Authorization）
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 获取文件夹下的文件数量
       tags:
       - file
   /file/merge:

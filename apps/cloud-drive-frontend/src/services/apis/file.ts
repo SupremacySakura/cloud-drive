@@ -1,7 +1,7 @@
 import request from '../request'
 import type { ResponseData } from '../types'
 import { calculateHash } from '../../utils/hash'
-import type { InitUploadFileRequest, InitUploadFileResponse } from '../types/file'
+import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
 export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onProgress: (progress: number) => void) => {
@@ -57,4 +57,30 @@ export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onPro
         return
     }
     onProgress(100)
+}
+
+export const getListByFolderIDAndUserID = async (folderID: number, page: number, pageSize: number) => {
+    const res = await request.get<ResponseData<FileListItem[]>>('/api/file/list', {
+        params: {
+            folder_id: folderID,
+            page,
+            page_size: pageSize,
+        },
+    })
+    if (res.data.code !== 0) {
+        return []
+    }
+    return res.data.data
+}
+
+export const getListCountByFolderIDAndUserID = async (folderID: number) => {
+    const res = await request.get<ResponseData<number>>('/api/file/list/count', {
+        params: {
+            folder_id: folderID,
+        },
+    })
+    if (res.data.code !== 0) {
+        return 0
+    }
+    return res.data.data
 }
