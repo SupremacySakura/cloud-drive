@@ -2,6 +2,7 @@ package handler
 
 import (
 	"cloud-drive-backend/internal/dto"
+	"cloud-drive-backend/internal/middleware"
 	"cloud-drive-backend/internal/model"
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
@@ -24,6 +25,7 @@ func NewAuthHandler(authService service.AuthService) *AuthHandler {
 func (h *AuthHandler) Register(r *gin.RouterGroup) {
 	r.POST("/register", h.RegisterUser)
 	r.POST("/login", h.Login)
+	r.GET("/check", middleware.AuthMiddleware(), h.checkLogin)
 }
 
 // RegisterUser godoc
@@ -101,4 +103,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	response.Success(c, vo.LoginResp{
 		Token: token,
 	})
+}
+
+func (h *AuthHandler) checkLogin(c *gin.Context) {
+	// 从上下文获取用户ID
+	_, exists := c.Get("user_id")
+	if !exists {
+		response.FailWithMsg(c, response.CodeUnauthorized, "unauthorized")
+		return
+	}
+	response.Success(c, nil)
 }

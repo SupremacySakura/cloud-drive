@@ -11,3 +11,8 @@ export const login = async (data: LoginRequest): Promise<ResponseData<LoginRespo
     const res = await request.post<ResponseData<LoginResponse>>('/api/auth/login', JSON.stringify(data))
     return res.data
 }
+
+export const checkLogin = async (): Promise<ResponseData<null>> => {
+    const res = await request.get<ResponseData<null>>('/api/auth/check')
+    return res.data
+}

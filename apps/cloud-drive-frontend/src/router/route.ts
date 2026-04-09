@@ -9,26 +9,32 @@ const routes: RouteRecordRaw[] = [
         path: '/home',
         component: () => import('../pages/HomePage.vue'),
         redirect: '/home/dashboard',
+        meta: { requiresAuth: true },
         children: [
             {
                 path: '/home/dashboard',
                 component: () => import('../pages/Dashboard.vue'),
+                meta: { requiresAuth: true },
             },
             {
                 path: '/home/files',
                 component: () => import('../pages/FileManagement.vue'),
+                meta: { requiresAuth: true },
             },
             {
                 path: '/home/pickup-codes',
                 component: () => import('../pages/PickupCodes.vue'),
+                meta: { requiresAuth: false },
             },
             {
                 path: '/home/upload',
                 component: () => import('../pages/UploadFile.vue'),
+                meta: { requiresAuth: true },
             },
             {
                 path: '/home/share',
                 component: () => import('../pages/ShareFile.vue'),
+                meta: { requiresAuth: true },
             },
         ]
     },
@@ -39,6 +45,10 @@ const routes: RouteRecordRaw[] = [
     {
         path:'/register',
         component: () => import('../pages/Register.vue'),
+    },
+    {
+        path: '/require-login',
+        component: () => import('../pages/RequireLogin.vue'),
     }
 ]
 export {
