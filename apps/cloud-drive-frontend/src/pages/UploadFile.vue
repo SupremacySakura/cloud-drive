@@ -4,6 +4,10 @@ import { computed, reactive, ref } from 'vue'
 import { uploadFile } from '../services/apis/file'
 import { detectFileType, formatBytes, iconForFile } from '../utils/file'
 import { createId } from '../utils/hash'
+import { useUserStore } from '../stores/user'
+import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
+
+const userStore = useUserStore()
 
 type QueueItemStatus = 'pending' | 'hashing' | 'uploading' | 'merging' | 'success' | 'failed' | 'canceled'
 
@@ -138,7 +142,8 @@ const badgeClass = (item: QueueItem) => {
 </script>
 
 <template>
-    <div
+    <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
+    <div v-else
         class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
         <main class="flex-1 overflow-y-auto p-8 space-y-8">
             <section>

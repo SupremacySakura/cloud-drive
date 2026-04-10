@@ -4,6 +4,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { getListByFolderIDAndUserID, getListCountByFolderIDAndUserID } from '../services/apis/file'
 import type { FileListItem } from '../services/types/file'
 import { formatBytes, formatTime, iconForListItem, typeLabelForListItem } from '../utils/file'
+import { useUserStore } from '../stores/user'
+import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
+
+const userStore = useUserStore()
 
 type ViewMode = 'list' | 'grid'
 type SortKey = 'name' | 'size' | 'modified'
@@ -202,7 +206,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div
+    <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
+    <div v-else
         class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
         <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div class="flex-1 overflow-y-auto p-8">
