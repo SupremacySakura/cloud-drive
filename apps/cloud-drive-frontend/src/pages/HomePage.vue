@@ -13,7 +13,7 @@ const NavItems: NavItem[] = [
 <template>
     <div class="flex h-screen">
         <SideBar :nav-items="NavItems" :brand-title="'云盘'" :brand-subtitle="''"></SideBar>
-        <router-view></router-view>
+        <router-view class="flex-1"></router-view>
     </div>
 </template>
 

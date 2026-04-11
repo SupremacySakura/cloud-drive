@@ -206,9 +206,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
-    <div v-else
-        class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+    <div class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+        <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
+        <template v-else>
         <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
             <div class="flex-1 overflow-y-auto p-8">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
@@ -515,6 +515,7 @@ onBeforeUnmount(() => {
                 </div>
             </div>
         </main>
+    </template>
     </div>
 </template>
 

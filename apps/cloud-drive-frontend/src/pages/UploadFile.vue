@@ -142,9 +142,9 @@ const badgeClass = (item: QueueItem) => {
 </script>
 
 <template>
-    <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
-    <div v-else
-        class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+    <div class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+        <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
+        <template v-else>
         <main class="flex-1 overflow-y-auto p-8 space-y-8">
             <section>
                 <input ref="fileInputRef" type="file" class="hidden" multiple @change="onFileInputChange" />
@@ -241,6 +241,7 @@ const badgeClass = (item: QueueItem) => {
                 </div>
             </section>
         </main>
+    </template>
     </div>
 </template>
 
