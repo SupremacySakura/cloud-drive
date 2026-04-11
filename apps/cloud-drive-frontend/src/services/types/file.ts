@@ -35,3 +35,8 @@ export type FileListItem = {
     size: number
     updated_at: string
 }
+
+export type MakeDirectoryRequest = {
+    folder_id: number
+    name: string
+}

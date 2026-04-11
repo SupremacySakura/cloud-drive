@@ -33,6 +33,7 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/merge", middleware.AuthMiddleware(), h.MergeUploadedChunks)
 	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
 	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
+	r.POST("/mkdir",middleware.AuthMiddleware(),h.MakeDirectory)
 }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
@@ -237,4 +238,23 @@ func (h *FileHandler) GetListCountByFolderIDAndUserID(c *gin.Context) {
 		return
 	}
 	response.Success(c, count)
+}
+
+func (h *FileHandler) MakeDirectory(c *gin.Context){
+	var req dto.MakeDirectoryReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	id, err := h.FileService.MakeDirectory(req.FolderID, req.Name, userID)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, id)
 }

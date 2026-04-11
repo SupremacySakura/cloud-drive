@@ -1,11 +1,28 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { getListByFolderIDAndUserID, getListCountByFolderIDAndUserID } from '../services/apis/file'
+import { getListByFolderIDAndUserID, getListCountByFolderIDAndUserID, makeDirectory, uploadFile } from '../services/apis/file'
 import type { FileListItem } from '../services/types/file'
-import { formatBytes, formatTime, iconForListItem, typeLabelForListItem } from '../utils/file'
+import { formatBytes, formatTime, iconForListItem, typeLabelForListItem, detectFileType, iconForFile } from '../utils/file'
 import { useUserStore } from '../stores/user'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
+import { createId } from '../utils/hash'
+import type { UploadFileConfig } from '../types/file'
+
+// 上传任务状态类型
+type UploadTaskStatus = 'pending' | 'hashing' | 'uploading' | 'merging' | 'success' | 'failed' | 'canceled'
+
+// 上传任务类型
+type UploadTask = {
+  id: string
+  file: File
+  targetFolderId: number
+  relativePath: string // 相对于上传根目录的路径
+  status: UploadTaskStatus
+  percent: number
+  message: string | null
+  canceled: boolean
+}
 
 const userStore = useUserStore()
 
@@ -28,6 +45,7 @@ const sortKey = ref<SortKey>('name')
 const sortDirection = ref<SortDirection>('asc')
 const openMenuId = ref<string | null>(null)
 const selectedIds = ref<Set<number>>(new Set())
+const menuPosition = ref<{ top: number; left: number } | null>(null)
 
 const currentFolderId = ref(0)
 const breadcrumbs = ref<BreadcrumbItem[]>([{ id: 0, name: 'root' }])
@@ -38,6 +56,27 @@ const totalCount = ref(0)
 
 const isLoading = ref(false)
 const errorMessage = ref<string | null>(null)
+
+// 创建文件夹相关状态
+const isCreateFolderModalOpen = ref(false)
+const newFolderName = ref('')
+const isCreatingFolder = ref(false)
+
+// 上传相关状态
+const uploadTasks = ref<UploadTask[]>([])
+const isUploadPanelOpen = ref(false)
+const isUploading = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
+
+// Toast 提示状态
+const toastMessage = ref('')
+const toastType = ref<'success' | 'error' | 'info'>('info')
+const showToast = ref(false)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+// 并发控制：最大同时上传文件数
+const MAX_CONCURRENT_UPLOADS = 3
 
 const rawItems = ref<FileListItem[]>([])
 
@@ -189,11 +228,428 @@ const ownerInitials = (name: string) => {
 const closeOverlays = () => {
     isSortOpen.value = false
     openMenuId.value = null
+    menuPosition.value = null
 }
 
 const onGlobalClick = () => closeOverlays()
 
 const onStopPropagation = (e: MouseEvent) => e.stopPropagation()
+
+const openFileMenu = (file: DisplayItem, event: MouseEvent) => {
+    const menuId = `${file.type}-${file.id}`
+    if (openMenuId.value === menuId) {
+        openMenuId.value = null
+        menuPosition.value = null
+        return
+    }
+    
+    const button = event.currentTarget as HTMLButtonElement
+    const rect = button.getBoundingClientRect()
+    const menuHeight = 220 // 菜单大致高度
+    const menuWidth = 192 // w-48 = 12rem = 192px
+    const padding = 8
+    
+    // 计算可用空间
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+    
+    // 决定菜单显示在上方还是下方
+    let top: number
+    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+        // 下方空间不足，显示在上方
+        top = rect.top - menuHeight - padding
+    } else {
+        // 默认显示在下方
+        top = rect.bottom + padding
+    }
+    
+    // 水平位置：右对齐
+    let left = rect.right - menuWidth
+    
+    // 确保不超出视口左侧
+    if (left < padding) {
+        left = padding
+    }
+    
+    menuPosition.value = { top, left }
+    openMenuId.value = menuId
+}
+
+const openCreateFolderModal = () => {
+    newFolderName.value = ''
+    isCreateFolderModalOpen.value = true
+}
+
+const closeCreateFolderModal = () => {
+    isCreateFolderModalOpen.value = false
+    newFolderName.value = ''
+}
+
+const handleCreateFolder = async () => {
+    const name = newFolderName.value.trim()
+    if (!name) {
+        errorMessage.value = '文件夹名称不能为空'
+        return
+    }
+
+    isCreatingFolder.value = true
+    errorMessage.value = null
+
+    try {
+        const folderId = await makeDirectory({
+            folder_id: currentFolderId.value,
+            name: name,
+        })
+
+        if (folderId > 0) {
+            closeCreateFolderModal()
+            await fetchFolder(currentFolderId.value)
+        } else {
+            errorMessage.value = '创建文件夹失败'
+        }
+    } catch (e: any) {
+        errorMessage.value = e?.message || '创建文件夹失败'
+    } finally {
+        isCreatingFolder.value = false
+    }
+}
+
+// ============ 上传功能 ============
+
+// 计算总体进度
+const overallProgress = computed(() => {
+    if (uploadTasks.value.length === 0) return 0
+    const total = uploadTasks.value.reduce((sum, t) => sum + t.percent, 0)
+    return Math.floor(total / uploadTasks.value.length)
+})
+
+// 打开文件选择对话框
+const openFileDialog = () => {
+    fileInputRef.value?.click()
+}
+
+// 打开文件夹选择对话框
+const openFolderDialog = () => {
+    folderInputRef.value?.click()
+}
+
+// 处理文件选择
+const onFileInputChange = async (e: Event) => {
+    const el = e.target as HTMLInputElement
+    const fileList = el.files
+    if (!fileList?.length) return
+
+    const files = Array.from(fileList)
+    el.value = '' // 清空输入，允许重复选择相同文件
+
+    // 创建上传任务，所有文件都上传到当前文件夹
+    // relativePath 设为空字符串，表示直接上传到目标文件夹，不需要创建子文件夹
+    const tasks: UploadTask[] = files.map((file) => ({
+        id: createId(),
+        file,
+        targetFolderId: currentFolderId.value,
+        relativePath: '',
+        status: 'pending',
+        percent: 0,
+        message: '等待中',
+        canceled: false,
+    }))
+
+    await startUploadTasks(tasks)
+}
+
+// 处理文件夹选择
+const onFolderInputChange = async (e: Event) => {
+    const el = e.target as HTMLInputElement
+    const fileList = el.files
+    if (!fileList?.length) return
+
+    const files = Array.from(fileList)
+    el.value = '' // 清空输入
+
+    // 解析文件夹结构
+    // webkitRelativePath 格式: "folder/subfolder/file.txt"
+    const tasks: UploadTask[] = files.map((file) => {
+        const relativePath = file.webkitRelativePath || file.name
+        // 获取文件所在的文件夹路径
+        const lastSlashIndex = relativePath.lastIndexOf('/')
+        const folderPath = lastSlashIndex > 0 ? relativePath.slice(0, lastSlashIndex) : ''
+
+        return {
+            id: createId(),
+            file,
+            targetFolderId: currentFolderId.value, // 初始目标文件夹，会在递归中更新
+            relativePath: folderPath, // 相对于上传根目录的文件夹路径
+            status: 'pending',
+            percent: 0,
+            message: '等待中',
+            canceled: false,
+        }
+    })
+
+    await startUploadTasks(tasks)
+}
+
+// 开始上传任务队列
+const startUploadTasks = async (tasks: UploadTask[]) => {
+    uploadTasks.value.unshift(...tasks)
+    isUploadPanelOpen.value = true
+    isUploading.value = true
+
+    // 使用队列控制并发
+    const queue = [...tasks]
+    let activeCount = 0
+    const results: Promise<void>[] = []
+
+    const processTask = async (task: UploadTask): Promise<void> => {
+        activeCount++
+        try {
+            await processUploadTask(task)
+        } finally {
+            activeCount--
+            // 当这个任务完成时，尝试启动下一个
+            processNext()
+        }
+    }
+
+    const processNext = (): void => {
+        while (activeCount < MAX_CONCURRENT_UPLOADS && queue.length > 0) {
+            const task = queue.shift()
+            if (task) {
+                results.push(processTask(task))
+            }
+        }
+    }
+
+    try {
+        // 启动初始任务
+        processNext()
+
+        // 等待所有任务完成
+        await Promise.all(results)
+
+        // 统计上传结果
+        const successCount = tasks.filter(t => t.status === 'success').length
+        const failedCount = tasks.filter(t => t.status === 'failed').length
+
+        if (failedCount === 0) {
+            displayToast(`成功上传 ${successCount} 个文件`, 'success')
+        } else if (successCount === 0) {
+            displayToast(`上传失败，${failedCount} 个文件未能上传`, 'error')
+        } else {
+            displayToast(`上传完成：${successCount} 个成功，${failedCount} 个失败`, 'info')
+        }
+    } finally {
+        isUploading.value = false
+        // 清除当前文件夹的缓存，确保能获取最新数据
+        folderCache.clear()
+        // 刷新当前文件夹列表 - 使用 finally 确保一定会执行
+        await fetchFolder(currentFolderId.value)
+    }
+}
+
+// 处理单个上传任务
+const processUploadTask = async (task: UploadTask): Promise<void> => {
+    if (task.canceled) return
+
+    try {
+        // 如果是文件夹上传，需要先创建文件夹结构
+        let targetFolderId = task.targetFolderId
+
+        if (task.relativePath) {
+            targetFolderId = await ensureFolderStructure(task.targetFolderId, task.relativePath)
+        }
+
+        task.status = 'uploading'
+        task.message = '上传中...'
+
+        const fileType = detectFileType(task.file)
+        const config: UploadFileConfig = {
+            file_type: fileType,
+            folder_id: targetFolderId,
+        }
+
+        // 使用 Promise 包装上传过程
+        let lastProgress = 0
+        await new Promise<void>((resolve, reject) => {
+            uploadFile(
+                task.file,
+                config,
+                (progress) => {
+                    lastProgress = progress
+                    if (task.canceled) {
+                        reject(new Error('已取消'))
+                        return
+                    }
+                    task.percent = Math.min(100, Math.max(0, Math.floor(progress)))
+                    task.message = progress >= 100 ? '处理中...' : '上传中...'
+                }
+            ).then(() => {
+                if (task.canceled) {
+                    reject(new Error('已取消'))
+                } else {
+                    // 检查进度是否达到100%，uploadFile在失败时会重置为0
+                    if (lastProgress >= 100) {
+                        resolve()
+                    } else {
+                        reject(new Error('上传过程中断'))
+                    }
+                }
+            }).catch((error) => {
+                reject(error)
+            })
+        })
+
+        task.status = 'success'
+        task.percent = 100
+        task.message = '上传完成'
+    } catch (e: any) {
+        if (task.canceled) return
+        task.status = 'failed'
+        task.message = e?.message || '上传失败'
+        // 重新抛出错误，让上层知道失败了
+        throw e
+    }
+}
+
+// 文件夹缓存：路径 -> folderId
+const folderCache = new Map<string, number>()
+// 正在创建的文件夹锁：路径 -> Promise<void>
+const creatingFolders = new Map<string, Promise<void>>()
+
+// 确保文件夹结构存在，返回最终文件夹ID
+const ensureFolderStructure = async (baseFolderId: number, relativePath: string): Promise<number> => {
+    // 标准化路径（处理不同操作系统的分隔符）
+    const normalizedPath = relativePath.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '')
+
+    if (!normalizedPath) return baseFolderId
+
+    // 检查缓存
+    const cacheKey = `${baseFolderId}/${normalizedPath}`
+    if (folderCache.has(cacheKey)) {
+        return folderCache.get(cacheKey)!
+    }
+
+    // 如果正在创建中，等待完成
+    if (creatingFolders.has(cacheKey)) {
+        await creatingFolders.get(cacheKey)
+        return folderCache.get(cacheKey) || baseFolderId
+    }
+
+    const parts = normalizedPath.split('/').filter(Boolean)
+    let currentFolderId = baseFolderId
+    let currentPath = ''
+
+    for (const part of parts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : part
+        const key = `${baseFolderId}/${currentPath}`
+        // 捕获当前的 parentFolderId，避免闭包问题
+        const parentFolderId = currentFolderId
+
+        if (folderCache.has(key)) {
+            currentFolderId = folderCache.get(key)!
+        } else if (creatingFolders.has(key)) {
+            // 等待其他任务创建完成
+            await creatingFolders.get(key)
+            currentFolderId = folderCache.get(key) || currentFolderId
+        } else {
+            // 创建文件夹锁
+            const createPromise = (async () => {
+                try {
+                    // 使makeDirectory 返回新创建的文件夹 ID
+                    const newFolderId = await makeDirectory({
+                        folder_id: parentFolderId,
+                        name: part,
+                    })
+
+                    if (newFolderId > 0) {
+                        // 成功创建，使用返回的 ID
+                        currentFolderId = newFolderId
+                        folderCache.set(key, currentFolderId)
+                    } else {
+                        // 创建失败，尝试从列表中查找是否已存在
+                        const list = await getListByFolderIDAndUserID(parentFolderId, 1, 100)
+                        const existingFolder = list.find((item) => item.name === part && item.type === 'folder')
+                        if (existingFolder) {
+                            currentFolderId = existingFolder.id
+                            folderCache.set(key, currentFolderId)
+                        } else {
+                            throw new Error(`创建文件夹 "${part}" 失败`)
+                        }
+                    }
+                } catch (e) {
+                    console.error(`创建文件夹 "${part}" 失败:`, e)
+                    // 创建失败时，尝试从列表中查找是否已存在
+                    try {
+                        const list = await getListByFolderIDAndUserID(parentFolderId, 1, 100)
+                        const existingFolder = list.find((item) => item.name === part && item.type === 'folder')
+                        if (existingFolder) {
+                            currentFolderId = existingFolder.id
+                            folderCache.set(key, currentFolderId)
+                        }
+                    } catch (fetchError) {
+                        console.error('获取文件夹列表失败:', fetchError)
+                    }
+                }
+            })()
+
+            creatingFolders.set(key, createPromise)
+            await createPromise
+            creatingFolders.delete(key)
+        }
+    }
+
+    return currentFolderId
+}
+
+// 取消上传任务
+const cancelTask = (task: UploadTask) => {
+    task.canceled = true
+    task.status = 'canceled'
+    task.message = '已取消'
+}
+
+// 重试上传任务
+const retryTask = async (task: UploadTask) => {
+    task.status = 'pending'
+    task.percent = 0
+    task.message = '等待中'
+    task.canceled = false
+    await processUploadTask(task)
+}
+
+// 移除已完成或失败的任务
+const removeTask = (taskId: string) => {
+    uploadTasks.value = uploadTasks.value.filter((t) => t.id !== taskId)
+}
+
+// 清空已完成的任务
+const clearCompleted = () => {
+    uploadTasks.value = uploadTasks.value.filter((t) => t.status !== 'success')
+}
+
+// 清空所有任务
+const clearAllTasks = () => {
+    uploadTasks.value = []
+}
+
+// 切换上传面板
+const toggleUploadPanel = () => {
+    isUploadPanelOpen.value = !isUploadPanelOpen.value
+}
+
+// 显示 Toast 提示
+const displayToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (toastTimer) {
+        clearTimeout(toastTimer)
+    }
+    toastMessage.value = message
+    toastType.value = type
+    showToast.value = true
+    toastTimer = setTimeout(() => {
+        showToast.value = false
+    }, 3000)
+}
 
 onMounted(() => {
     document.addEventListener('click', onGlobalClick)
@@ -234,17 +690,54 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div class="flex items-center gap-3">
+                        <!-- 隐藏的文件输入框 -->
+                        <input ref="fileInputRef" type="file" class="hidden" multiple @change="onFileInputChange" />
+                        <input ref="folderInputRef" type="file" class="hidden" webkitdirectory directory
+                            @change="onFolderInputChange" />
+
                         <button
                             class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
-                            type="button">
+                            type="button" @click="openCreateFolderModal">
                             <Icon class="text-[20px]" icon="material-symbols:create-new-folder" />
                             新建文件夹
                         </button>
-                        <button
-                            class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
-                            type="button">
-                            <Icon class="text-[20px]" icon="material-symbols:upload" />
-                            上传
+
+                        <!-- 上传下拉菜单 -->
+                        <div class="relative group">
+                            <button
+                                class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                                type="button">
+                                <Icon class="text-[20px]" icon="material-symbols:upload" />
+                                上传
+                            </button>
+                            <!-- 下拉选项 -->
+                            <div
+                                class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 py-2">
+                                <button
+                                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" @click="openFileDialog">
+                                    <Icon icon="material-symbols:description" />
+                                    上传文件
+                                </button>
+                                <button
+                                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" @click="openFolderDialog">
+                                    <Icon icon="material-symbols:folder" />
+                                    上传文件夹
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 上传进度按钮（当有任务时显示） -->
+                        <button v-if="uploadTasks.length > 0"
+                            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                            :class="isUploadPanelOpen ? 'bg-slate-50 dark:bg-slate-900' : ''" type="button"
+                            @click="toggleUploadPanel">
+                            <Icon class="text-[20px]"
+                                :icon="isUploading ? 'material-symbols:progress-activity' : 'material-symbols:check-circle'"
+                                :class="isUploading ? 'animate-spin text-primary' : 'text-green-500'" />
+                            <span v-if="isUploading">{{ overallProgress }}%</span>
+                            <span v-else>{{ uploadTasks.filter(t => t.status === 'success').length }}/{{ uploadTasks.length }}</span>
                         </button>
                     </div>
                 </div>
@@ -384,48 +877,13 @@ onBeforeUnmount(() => {
                                 <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">{{ file.lastModifiedText
                                 }}
                                 </td>
-                                <td class="py-4 px-6 text-right relative" @click="onStopPropagation">
+                                <td class="py-4 px-6 text-right" @click="onStopPropagation">
                                     <button
                                         class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
                                         type="button"
-                                        @click="openMenuId = openMenuId === String(file.id) ? null : String(file.id)">
+                                        @click="(e) => openFileMenu(file, e)">
                                         <Icon icon="material-symbols:more-vert" />
                                     </button>
-
-                                    <div v-if="openMenuId === String(file.id)"
-                                        class="absolute right-6 mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-20 py-2">
-                                        <button
-                                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                            type="button">
-                                            <Icon class="text-sm" icon="material-symbols:visibility" />
-                                            预览
-                                        </button>
-                                        <button
-                                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                            type="button">
-                                            <Icon class="text-sm" icon="material-symbols:download" />
-                                            下载
-                                        </button>
-                                        <button
-                                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                            type="button">
-                                            <Icon class="text-sm" icon="material-symbols:edit" />
-                                            重命名
-                                        </button>
-                                        <button
-                                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                            type="button">
-                                            <Icon class="text-sm" icon="material-symbols:drive-file-move" />
-                                            移动到
-                                        </button>
-                                        <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-                                        <button
-                                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                            type="button">
-                                            <Icon class="text-sm" icon="material-symbols:delete" />
-                                            删除
-                                        </button>
-                                    </div>
                                 </td>
                             </tr>
 
@@ -466,54 +924,282 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
-                <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div v-for="file in sortedFiles" :key="file.id"
-                        class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
-                        :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
-                        <div class="flex items-start justify-between gap-3">
-                            <div class="flex items-center gap-3 min-w-0">
-                                <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
-                                    :class="`${file.iconBg} ${file.iconFg}`">
-                                    <Icon class="text-[22px]" :icon="file.icon" />
+                <div v-else>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div v-for="file in sortedFiles" :key="file.id"
+                            class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
+                            :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
+                                        :class="`${file.iconBg} ${file.iconFg}`">
+                                        <Icon class="text-[22px]" :icon="file.icon" />
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{
+                                            file.name }}</div>
+                                        <div class="text-xs text-slate-500">{{ file.typeLabel }}</div>
+                                    </div>
                                 </div>
-                                <div class="min-w-0">
-                                    <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{
-                                        file.name }}</div>
-                                    <div class="text-xs text-slate-500">{{ file.typeLabel }}</div>
-                                </div>
+                                <input class="rounded border-slate-300 text-primary focus:ring-primary/20" type="checkbox"
+                                    :checked="selectedIds.has(file.id)" @click.stop
+                                    @change="toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)" />
                             </div>
-                            <input class="rounded border-slate-300 text-primary focus:ring-primary/20" type="checkbox"
-                                :checked="selectedIds.has(file.id)" @click.stop
-                                @change="toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)" />
+
+                            <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
+                                <span>{{ file.type === 'folder' ? '-' : formatBytes(file.size) }}</span>
+                                <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
+                            </div>
+
+                            <div class="mt-3 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <div
+                                        class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">
+                                        {{ ownerInitials('Me') }}
+                                    </div>
+                                    <span class="text-xs text-slate-500">Me</span>
+                                </div>
+                                <button
+                                    class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/50 dark:hover:bg-slate-900"
+                                    type="button" @click.stop="(e) => openFileMenu(file, e)">
+                                    <Icon icon="material-symbols:more-vert" />
+                                </button>
+                            </div>
                         </div>
 
-                        <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
-                            <span>{{ file.type === 'folder' ? '-' : formatBytes(file.size) }}</span>
-                            <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
+                        <div v-if="sortedFiles.length === 0"
+                            class="col-span-full p-10 text-center text-slate-500 dark:text-slate-400">
+                            暂无文件
                         </div>
+                    </div>
 
-                        <div class="mt-3 flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <div
-                                    class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">
-                                    {{ ownerInitials('Me') }}
-                                </div>
-                                <span class="text-xs text-slate-500">Me</span>
-                            </div>
+                    <!-- 网格视图分页 -->
+                    <div v-if="sortedFiles.length > 0"
+                        class="mt-6 px-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                        <p class="text-xs text-slate-500">
+                            Showing <span class="font-bold text-slate-900 dark:text-slate-100">{{ startIndex }}-{{
+                                endIndex }}</span>
+                            of <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span> items
+                        </p>
+                        <div class="flex items-center gap-2">
                             <button
-                                class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/50 dark:hover:bg-slate-900"
-                                type="button" @click.stop>
-                                <Icon icon="material-symbols:more-vert" />
+                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                type="button" :disabled="page <= 1 || isLoading" @click="goToPage(page - 1)">
+                                <Icon class="text-sm" icon="material-symbols:chevron-left" />
+                            </button>
+                            <button v-for="p in pageNumbers" :key="p"
+                                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                                :class="p === page ? 'bg-primary text-white font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'"
+                                type="button" :disabled="isLoading" @click="goToPage(p)">
+                                {{ p }}
+                            </button>
+                            <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
+                            <button
+                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                type="button" :disabled="page >= totalPages || isLoading" @click="goToPage(page + 1)">
+                                <Icon class="text-sm" icon="material-symbols:chevron-right" />
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    <div v-if="sortedFiles.length === 0"
-                        class="col-span-full p-10 text-center text-slate-500 dark:text-slate-400">
-                        暂无文件
+            <!-- 创建文件夹模态框 -->
+            <div v-if="isCreateFolderModalOpen"
+                class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                @click="closeCreateFolderModal">
+                <div class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md p-6"
+                    @click.stop>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">新建文件夹</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                            文件夹名称
+                        </label>
+                        <input v-model="newFolderName" type="text"
+                            class="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            placeholder="请输入文件夹名称" @keyup.enter="handleCreateFolder" autofocus />
+                    </div>
+
+                    <div class="flex justify-end gap-3">
+                        <button
+                            class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                            type="button" @click="closeCreateFolderModal" :disabled="isCreatingFolder">
+                            取消
+                        </button>
+                        <button
+                            class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
+                            type="button" @click="handleCreateFolder" :disabled="isCreatingFolder || !newFolderName.trim()">
+                            <Icon v-if="isCreatingFolder" icon="material-symbols:progress-activity"
+                                class="animate-spin" />
+                            {{ isCreatingFolder ? '创建中...' : '创建' }}
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <!-- 上传任务面板 -->
+            <div v-if="uploadTasks.length > 0 && isUploadPanelOpen"
+                class="fixed bottom-4 right-4 w-96 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-40 flex flex-col max-h-[500px]">
+                <!-- 面板头部 -->
+                <div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
+                    <div class="flex items-center gap-2">
+                        <Icon v-if="isUploading" icon="material-symbols:progress-activity"
+                            class="animate-spin text-primary" />
+                        <Icon v-else icon="material-symbols:check-circle" class="text-green-500" />
+                        <span class="font-semibold text-slate-900 dark:text-slate-100">
+                            上传任务 ({{ uploadTasks.filter(t => t.status === 'success').length }}/{{ uploadTasks.length }})
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button v-if="uploadTasks.some(t => t.status === 'success')"
+                            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                            type="button" @click="clearCompleted" title="清理已完成">
+                            <Icon icon="material-symbols:cleaning-services" />
+                        </button>
+                        <button
+                            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                            type="button" @click="clearAllTasks" title="关闭面板">
+                            <Icon icon="material-symbols:close" />
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 总体进度 -->
+                <div class="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="text-slate-500">总体进度</span>
+                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ overallProgress }}%</span>
+                    </div>
+                    <div class="h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div class="h-1.5 bg-primary rounded-full transition-all duration-300"
+                            :style="{ width: `${overallProgress}%` }"></div>
+                    </div>
+                </div>
+
+                <!-- 任务列表 -->
+                <div class="flex-1 overflow-y-auto p-2 space-y-2 max-h-[350px]">
+                    <div v-for="task in uploadTasks" :key="task.id"
+                        class="flex items-center gap-3 p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                        <!-- 文件图标 -->
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                            :class="iconForFile(task.file).bg + ' ' + iconForFile(task.file).fg">
+                            <Icon :icon="iconForFile(task.file).icon" class="text-sm" />
+                        </div>
+
+                        <!-- 文件信息 -->
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between mb-1">
+                                <p class="text-xs font-medium text-slate-800 dark:text-slate-100 truncate">
+                                    {{ task.file.name }}
+                                </p>
+                                <span class="text-[10px] font-medium uppercase tracking-wider"
+                                    :class="{
+                                        'text-green-500': task.status === 'success',
+                                        'text-red-500': task.status === 'failed',
+                                        'text-slate-400': task.status === 'canceled',
+                                        'text-primary': ['pending', 'hashing', 'uploading', 'merging'].includes(task.status)
+                                    }">
+                                    {{ task.status === 'success' ? '成功' : task.status === 'failed' ? '失败' : task.status
+                                        === 'canceled' ? '取消' : task.percent + '%' }}
+                                </span>
+                            </div>
+
+                            <!-- 进度条 -->
+                            <div class="h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                                <div class="h-1 rounded-full transition-all duration-200" :class="task.status === 'failed'
+                                    ? 'bg-red-500' : task.status === 'success' ? 'bg-green-500' : 'bg-primary'"
+                                    :style="{ width: task.percent + '%' }"></div>
+                            </div>
+
+                            <p class="text-[10px] text-slate-400 mt-1 truncate">{{ task.message }}</p>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="flex items-center gap-1">
+                            <button v-if="task.status === 'failed'"
+                                class="p-1 text-slate-400 hover:text-primary rounded transition-colors"
+                                type="button" @click="retryTask(task)">
+                                <Icon icon="material-symbols:replay" class="text-sm" />
+                            </button>
+                            <button v-if="['uploading', 'hashing', 'merging', 'pending'].includes(task.status)"
+                                class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" type="button"
+                                @click="cancelTask(task)">
+                                <Icon icon="material-symbols:close" class="text-sm" />
+                            </button>
+                            <button v-if="['success', 'failed', 'canceled'].includes(task.status)"
+                                class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" type="button"
+                                @click="removeTask(task.id)">
+                                <Icon icon="material-symbols:delete" class="text-sm" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast 提示 -->
+            <transition enter-active-class="transform ease-out duration-300 transition"
+                enter-from-class="translate-y-2 opacity-0" enter-to-class="translate-y-0 opacity-100"
+                leave-active-class="transition ease-in duration-200" leave-from-class="opacity-100"
+                leave-to-class="opacity-0">
+                <div v-if="showToast"
+                    class="fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border"
+                    :class="{
+                        'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': toastType === 'success',
+                        'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': toastType === 'error',
+                        'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800': toastType === 'info'
+                    }">
+                    <Icon v-if="toastType === 'success'" icon="material-symbols:check-circle"
+                        class="text-2xl text-green-500" />
+                    <Icon v-else-if="toastType === 'error'" icon="material-symbols:error" class="text-2xl text-red-500" />
+                    <Icon v-else icon="material-symbols:info" class="text-2xl text-blue-500" />
+                    <span class="font-medium" :class="{
+                        'text-green-800 dark:text-green-200': toastType === 'success',
+                        'text-red-800 dark:text-red-200': toastType === 'error',
+                        'text-blue-800 dark:text-blue-200': toastType === 'info'
+                    }">                    {{ toastMessage }}</span>
+                </div>
+            </transition>
+
+            <!-- 文件操作菜单 - 使用 Teleport 挂载到 body 避免被遮挡 -->
+            <Teleport to="body">
+                <div v-if="openMenuId && menuPosition"
+                    class="fixed w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2"
+                    :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
+                    @click="onStopPropagation">
+                    <button
+                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                        type="button">
+                        <Icon class="text-sm" icon="material-symbols:visibility" />
+                        预览
+                    </button>
+                    <button
+                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                        type="button">
+                        <Icon class="text-sm" icon="material-symbols:download" />
+                        下载
+                    </button>
+                    <button
+                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                        type="button">
+                        <Icon class="text-sm" icon="material-symbols:edit" />
+                        重命名
+                    </button>
+                    <button
+                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                        type="button">
+                        <Icon class="text-sm" icon="material-symbols:drive-file-move" />
+                        移动到
+                    </button>
+                    <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                    <button
+                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        type="button">
+                        <Icon class="text-sm" icon="material-symbols:delete" />
+                        删除
+                    </button>
+                </div>
+            </Teleport>
         </main>
     </template>
     </div>

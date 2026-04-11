@@ -40,3 +40,8 @@ type GetListByFolderIDAndUserIDReq struct {
 type GetListCountByFolderIDAndUserIDReq struct {
 	FolderID uint `form:"folder_id"`
 }
+
+type MakeDirectoryReq struct {
+	FolderID uint `json:"folder_id"`
+	Name     string `json:"name"`
+}

@@ -1,7 +1,7 @@
 import request from '../request'
 import type { ResponseData } from '../types'
 import { calculateHash } from '../../utils/hash'
-import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse } from '../types/file'
+import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
 export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onProgress: (progress: number) => void) => {
@@ -23,8 +23,8 @@ export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onPro
         return
     }
     if (initRes.data.data.status !== 'uploading') {
-        // 任务已经完成
         onProgress(100)
+        return
     }
     const uploaded_chunks = new Set(initRes.data.data.uploaded_chunks)
     // 上传的时候跳过已经上传的chunk
@@ -79,6 +79,14 @@ export const getListCountByFolderIDAndUserID = async (folderID: number) => {
             folder_id: folderID,
         },
     })
+    if (res.data.code !== 0) {
+        return 0
+    }
+    return res.data.data
+}
+
+export const makeDirectory = async (data: MakeDirectoryRequest) => {
+    const res = await request.post<ResponseData<number>>('/api/file/mkdir', data)
     if (res.data.code !== 0) {
         return 0
     }

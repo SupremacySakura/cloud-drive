@@ -27,6 +27,7 @@ type FileService interface {
 	MergeUploadedChunks(userID uint, taskID uint) error
 	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
+	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
 }
 
 type fileService struct {
@@ -42,33 +43,120 @@ func NewFileService(fileRepository *repository.FileRepository, options FileServi
 }
 
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
-	// 判断任务是否已经存在
-	task, err = s.FileRepository.GetUploadTaskByHashAndUserID(req.FileHash, req.UserID)
+	exists, err := s.FileRepository.CheckFileExistsInFolder(req.FileHash, req.UserID, req.FolderID)
 	if err != nil {
-		// 数据库查询错误
+		return nil, err
+	}
+	if exists {
+		return s.createInstantCompleteTask(req)
+	}
+
+	existingTask, err := s.FileRepository.GetUploadTaskByHashAndUserID(req.FileHash, req.UserID)
+	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
-		// 任务不存在，创建新任务
 		req.Status = model.UploadStatusUploading
 		err = s.FileRepository.CreateUploadTask(req)
 		if err != nil {
 			return nil, err
 		}
-		// 创建文件夹
 		err = os.MkdirAll(s.ChunkStoragePath+"/"+strconv.FormatUint(uint64(req.ID), 10), 0755)
 		if err != nil {
 			return nil, err
 		}
 		return req, nil
 	}
-	// 任务已经存在
+
+	if existingTask.Status == model.UploadStatusCompleted {
+		return s.createInstantTransferTask(req, existingTask)
+	}
+
+	return existingTask, nil
+}
+
+func (s *fileService) createInstantCompleteTask(req *model.UploadTask) (*model.UploadTask, error) {
+	task := &model.UploadTask{
+		FileHash:       req.FileHash,
+		FileName:       req.FileName,
+		FileSize:       req.FileSize,
+		ChunkSize:      req.ChunkSize,
+		TotalChunks:    req.TotalChunks,
+		UploadedChunks: model.IntSlice{},
+		FileType:       req.FileType,
+		FolderID:       req.FolderID,
+		UserID:         req.UserID,
+		Status:         model.UploadStatusCompleted,
+	}
+
+	if err := s.FileRepository.CreateUploadTask(task); err != nil {
+		return nil, err
+	}
+
+	exists, err := s.FileRepository.CheckFileExistsInFolder(req.FileHash, req.UserID, req.FolderID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		fileModel := &model.FileModel{
+			UserID:   req.UserID,
+			FolderID: req.FolderID,
+			Name:     req.FileName,
+			Size:     req.FileSize,
+			Type:     req.FileType,
+			FileHash: req.FileHash,
+		}
+		if err := s.FileRepository.Create(fileModel); err != nil {
+			return nil, err
+		}
+	}
+
+	for i := 0; i < req.TotalChunks; i++ {
+		task.UploadedChunks = append(task.UploadedChunks, i)
+	}
+
+	return task, nil
+}
+
+func (s *fileService) createInstantTransferTask(req *model.UploadTask, existingTask *model.UploadTask) (*model.UploadTask, error) {
+	task := &model.UploadTask{
+		FileHash:       req.FileHash,
+		FileName:       req.FileName,
+		FileSize:       req.FileSize,
+		ChunkSize:      req.ChunkSize,
+		TotalChunks:    req.TotalChunks,
+		UploadedChunks: model.IntSlice{},
+		FileType:       req.FileType,
+		FolderID:       req.FolderID,
+		UserID:         req.UserID,
+		Status:         model.UploadStatusCompleted,
+	}
+
+	for i := 0; i < req.TotalChunks; i++ {
+		task.UploadedChunks = append(task.UploadedChunks, i)
+	}
+
+	if err := s.FileRepository.CreateUploadTask(task); err != nil {
+		return nil, err
+	}
+
+	fileModel := &model.FileModel{
+		UserID:   req.UserID,
+		FolderID: req.FolderID,
+		Name:     req.FileName,
+		Size:     req.FileSize,
+		Type:     req.FileType,
+		FileHash: req.FileHash,
+	}
+	if err := s.FileRepository.Create(fileModel); err != nil {
+		return nil, err
+	}
+
 	return task, nil
 }
 
 func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq, reader io.Reader) error {
 	return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
-		// 1. 查 task + 加锁
 		var task model.UploadTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND user_id = ?", req.TaskID, userID).
@@ -76,15 +164,12 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return err
 		}
 
-		// 2. 写文件（流式写入）
 		chunkDir := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10)
 		if err := os.MkdirAll(chunkDir, 0755); err != nil {
 			return err
 		}
 
 		chunkPath := chunkDir + "/" + strconv.Itoa(req.ChunkIndex)
-
-		// 原子写入
 		tmpPath := chunkPath + ".tmp"
 
 		dst, err := os.Create(tmpPath)
@@ -103,7 +188,6 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return err
 		}
 
-		// 3. hash 校验（如果需要）
 		ok, err := utils.VerifyFileSHA256(chunkPath, req.ChunkHash)
 		if err != nil {
 			return err
@@ -112,7 +196,6 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return errors.New("chunk hash mismatch")
 		}
 
-		// 4. 更新 uploadedChunks
 		task.UploadedChunks = append(task.UploadedChunks, req.ChunkIndex)
 		sort.Ints(task.UploadedChunks)
 
@@ -121,7 +204,6 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 }
 
 func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
-	// 从数据库获取任务
 	task, err := s.FileRepository.GetUploadTaskByIDAndUserID(taskID, userID)
 	if err != nil {
 		return err
@@ -129,11 +211,9 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	if task.Status == model.UploadStatusCompleted {
 		return nil
 	}
-	// 检查是否所有分片都已上传
 	if !utils.HasAllChunks(task.UploadedChunks, task.TotalChunks) {
 		return errors.New("not all chunks uploaded")
 	}
-	// 合并分片
 	if len(task.FileHash) < 4 {
 		return errors.New("invalid file hash")
 	}
@@ -168,13 +248,11 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	if !ok {
 		return errors.New("merged file hash mismatch")
 	}
-	// 更新任务状态为已完成
 	task.Status = model.UploadStatusCompleted
 	err = s.FileRepository.UpdateUploadTask(task)
 	if err != nil {
 		return err
 	}
-	// 创建文件记录
 	fileModel := &model.FileModel{
 		UserID:   task.UserID,
 		FolderID: task.FolderID,
@@ -204,4 +282,9 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 		return 0, err
 	}
 	return count, nil
+}
+
+func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
+	id, err := s.FileRepository.MakeDirectory(folderID, name, userID)
+	return id, err
 }

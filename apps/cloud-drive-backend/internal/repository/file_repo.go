@@ -52,6 +52,33 @@ func (r *FileRepository) GetUploadTaskByHashAndUserID(fileHash string, userID ui
 	return &task, nil
 }
 
+func (r *FileRepository) GetUploadTaskByHashAndUserIDAndFolderID(fileHash string, userID uint, folderID uint) (*model.UploadTask, error) {
+	var task model.UploadTask
+	err := r.DB.Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).First(&task).Error
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+func (r *FileRepository) GetFileByHashAndUserID(fileHash string, userID uint) (*model.FileModel, error) {
+	var file model.FileModel
+	err := r.DB.Where("file_hash = ? AND user_id = ?", fileHash, userID).First(&file).Error
+	if err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+func (r *FileRepository) CheckFileExistsInFolder(fileHash string, userID uint, folderID uint) (bool, error) {
+	var count int64
+	err := r.DB.Model(&model.FileModel{}).Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *FileRepository) GetUploadTaskByID(id uint) (*model.UploadTask, error) {
 	var task model.UploadTask
 	err := r.DB.Where("id = ?", id).First(&task).Error
@@ -143,4 +170,17 @@ func (r *FileRepository) GetListCountByFolderIDAndUserID(folderID uint, userID u
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *FileRepository) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
+	var folder model.FolderModel
+	err := r.DB.Create(&model.FolderModel{
+		ParentID: folderID,
+		Name:     name,
+		UserID:   userID,
+	}).Error
+	if err != nil {
+		return 0, err
+	}
+	return folder.ID, nil
 }
