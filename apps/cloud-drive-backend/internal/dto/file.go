@@ -1,6 +1,9 @@
 package dto
 
-import "time"
+import (
+	"cloud-drive-backend/internal/model"
+	"time"
+)
 
 type InitUploadFileReq struct {
 	FileName    string `json:"file_name" binding:"required"`
@@ -42,6 +45,20 @@ type GetListCountByFolderIDAndUserIDReq struct {
 }
 
 type MakeDirectoryReq struct {
-	FolderID uint `json:"folder_id"`
+	FolderID uint   `json:"folder_id"`
 	Name     string `json:"name"`
+}
+
+type CreatePickUpCodeReq struct {
+	Code         string                 `json:"code"`
+	FileID       *uint                  `json:"file_id"`
+	FolderID     *uint                  `json:"folder_id"`
+	Type         model.PickUpTargetType `json:"type"`
+	MaxDownloads int                    `json:"max_downloads"`
+	ExpireTime   time.Time              `json:"expire_time"`
+}
+
+type GetPickUpCodeListByUserIDAndPageReq struct {
+	Page     int  `form:"page" binding:"min=1"`
+	PageSize int  `form:"page_size" binding:"min=1,max=100"`
 }

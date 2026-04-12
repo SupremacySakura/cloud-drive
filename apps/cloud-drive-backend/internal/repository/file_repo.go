@@ -70,6 +70,15 @@ func (r *FileRepository) GetFileByHashAndUserID(fileHash string, userID uint) (*
 	return &file, nil
 }
 
+func (r *FileRepository) GetFileByFileIDAndUserID(fileID uint, userID uint) (*model.FileModel, error) {
+	var file model.FileModel
+	err := r.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error
+	if err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
 func (r *FileRepository) CheckFileExistsInFolder(fileHash string, userID uint, folderID uint) (bool, error) {
 	var count int64
 	err := r.DB.Model(&model.FileModel{}).Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).Count(&count).Error
@@ -183,4 +192,39 @@ func (r *FileRepository) MakeDirectory(folderID uint, name string, userID uint) 
 		return 0, err
 	}
 	return folder.ID, nil
+}
+
+func (r *FileRepository) GetFolderByFolderIDAndUserID(folderID uint, userID uint) (*model.FolderModel, error) {
+	var folder model.FolderModel
+	err := r.DB.Where("id = ? AND user_id = ?", folderID, userID).First(&folder).Error
+	if err != nil {
+		return nil, err
+	}
+	return &folder, nil
+}
+
+func (r *FileRepository) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error) {
+	err := r.DB.Create(code).Error
+	if err != nil {
+		return 0, err
+	}
+	return code.ID, nil
+}
+
+func (r *FileRepository) GetPickUpCodeListByUserIDAndPage(userID uint, page, pageSize int) ([]model.PickUpCodeModel, error) {
+	var codeModels []model.PickUpCodeModel
+	err := r.DB.Where("user_id = ? LIMIT ? OFFSET ?", userID, pageSize, (page-1)*pageSize).Find(&codeModels).Error
+	if err != nil {
+		return nil, err
+	}
+	return codeModels, nil
+}
+
+func (r *FileRepository) GetPickUpCodeListCountByUserID(userID uint) (int64, error) {
+	var count int64
+	err := r.DB.Model(&model.PickUpCodeModel{}).Where("user_id = ?", userID).Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }

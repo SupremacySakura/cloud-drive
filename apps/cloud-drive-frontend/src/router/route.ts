@@ -24,7 +24,7 @@ const routes: RouteRecordRaw[] = [
             {
                 path: '/home/pickup-codes',
                 component: () => import('../pages/PickupCodes.vue'),
-                meta: { requiresAuth: false },
+                meta: { requiresAuth: true },
             },
             {
                 path: '/home/upload',

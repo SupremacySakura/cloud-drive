@@ -7,6 +7,8 @@ import (
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/vo"
+	"math/rand"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,7 +35,10 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/merge", middleware.AuthMiddleware(), h.MergeUploadedChunks)
 	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
 	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
-	r.POST("/mkdir",middleware.AuthMiddleware(),h.MakeDirectory)
+	r.POST("/mkdir", middleware.AuthMiddleware(), h.MakeDirectory)
+	r.POST("/code", middleware.AuthMiddleware(), h.CreatePickUpCode)
+	r.GET("/code/list", middleware.AuthMiddleware(), h.GetPickUpCodeListByUserIDAndPage)
+	r.GET("/code/count", middleware.AuthMiddleware(), h.GetPickUpCodeListCountByUserID)
 }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
@@ -240,7 +245,7 @@ func (h *FileHandler) GetListCountByFolderIDAndUserID(c *gin.Context) {
 	response.Success(c, count)
 }
 
-func (h *FileHandler) MakeDirectory(c *gin.Context){
+func (h *FileHandler) MakeDirectory(c *gin.Context) {
 	var req dto.MakeDirectoryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, response.CodeInvalidParam)
@@ -257,4 +262,110 @@ func (h *FileHandler) MakeDirectory(c *gin.Context){
 		return
 	}
 	response.Success(c, id)
+}
+
+// CreatePickUpCode godoc
+// @Summary 创建分享码
+// @Description 创建分享码
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param data body dto.CreatePickUpCodeReq true "分享码参数"
+// @Success 200 {object} response.Response{data=int} "成功返回（code=0,data=int）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/code [post]
+func (h *FileHandler) CreatePickUpCode(c *gin.Context) {
+	var req dto.CreatePickUpCodeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+
+	code := req.Code
+	if code == "" {
+		code = generatePickUpCode()
+	}
+	code, ok = normalizePickUpCode(code)
+	if !ok {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+
+	id, err := h.FileService.CreatePickUpCode(&model.PickUpCodeModel{
+		Code:        code,
+		Status:      model.PickUpCodeStatusActive,
+		UserID:      userID,
+		Type:        req.Type,
+		FileID:      req.FileID,
+		FolderID:    req.FolderID,
+		MaxDownload: uint(req.MaxDownloads),
+		ExpireTime:  req.ExpireTime,
+	})
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, id)
+}
+
+func generatePickUpCode() string {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	result := make([]byte, 6)
+	for i := range result {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(result)
+}
+
+func normalizePickUpCode(code string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(code))
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	if len(normalized) != 6 {
+		return "", false
+	}
+	for _, ch := range normalized {
+		if !(ch >= 'A' && ch <= 'Z') && !(ch >= '0' && ch <= '9') {
+			return "", false
+		}
+	}
+	return normalized, true
+}
+
+func (h *FileHandler) GetPickUpCodeListByUserIDAndPage(c *gin.Context) {
+	var req dto.GetPickUpCodeListByUserIDAndPageReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	list, err := h.FileService.GetPickUpCodeListByUserID(userID, req.Page, req.PageSize)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, list)
+}
+
+func (h *FileHandler) GetPickUpCodeListCountByUserID(c *gin.Context) {
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	count, err := h.FileService.GetPickUpCodeListCountByUserID(userID)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, count)
 }

@@ -40,3 +40,34 @@ export type MakeDirectoryRequest = {
     folder_id: number
     name: string
 }
+
+export type PickupCodeType = 'file' | 'folder'
+export type PickupCodeStatus = 'Active' | 'Expired'
+
+export interface CreatePickupCodeRequest {
+    code: string
+    file_id: number | null
+    folder_id: number | null
+    type: PickupCodeType
+    max_downloads: number
+    expire_time: string
+}
+
+export interface GetPickupCodeListRequest {
+    page: number
+    page_size: number
+}
+
+export interface PickupCodeItem {
+    id: number
+    code: string
+    file_id: number | null
+    folder_id: number | null
+    name: string
+    type: PickupCodeType
+    download: number
+    max_download: number
+    expire_time: string
+    created_at: string
+    status: PickupCodeStatus
+}

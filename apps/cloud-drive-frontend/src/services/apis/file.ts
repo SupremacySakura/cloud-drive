@@ -1,7 +1,7 @@
 import request from '../request'
 import type { ResponseData } from '../types'
 import { calculateHash } from '../../utils/hash'
-import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest } from '../types/file'
+import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest, CreatePickupCodeRequest, PickupCodeItem } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
 export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onProgress: (progress: number) => void) => {
@@ -91,4 +91,33 @@ export const makeDirectory = async (data: MakeDirectoryRequest) => {
         return 0
     }
     return res.data.data
+}
+
+export const createPickupCode = async (data: CreatePickupCodeRequest) => {
+    const res = await request.post<ResponseData<number>>('/api/file/code', data)
+    if (res.data.code !== 0) {
+        return null
+    }
+    return res.data.data
+}
+
+export const getPickupCodeList = async (page: number, pageSize: number) => {
+    const res = await request.get<ResponseData<PickupCodeItem[]>>('/api/file/code/list', {
+        params: {
+            page,
+            page_size: pageSize,
+        },
+    })
+    if (res.data.code !== 0) {
+        return []
+    }
+    return res.data.data ?? []
+}
+
+export const getPickupCodeCount = async () => {
+    const res = await request.get<ResponseData<number>>('/api/file/code/count')
+    if (res.data.code !== 0) {
+        return 0
+    }
+    return res.data.data ?? 0
 }

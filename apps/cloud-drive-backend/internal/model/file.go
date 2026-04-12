@@ -59,25 +59,25 @@ func (s *IntSlice) Scan(value interface{}) error {
 }
 
 type FileModel struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`      // 文件ID
-	Name      string    `gorm:"not null" json:"name"`      // 文件名
-	FileHash  string    `gorm:"not null" json:"file_hash"` // 文件哈希
-	Type      string    `gorm:"not null" json:"type"`      // 文件类型: image/video/document/other
-	Size      uint64    `gorm:"not null" json:"size"`      // 文件大小（字节）
-	FolderID  uint      `json:"folder_id"`                 // 所属文件夹ID
-	UserID    uint      `gorm:"not null" json:"user_id"`   // 所属用户ID
-	CreatedAt time.Time `json:"created_at"`                // 创建时间
-	UpdatedAt time.Time `json:"updated_at"`                // 更新时间
+	ID        uint           `gorm:"primaryKey" json:"id"`      // 文件ID
+	Name      string         `gorm:"not null" json:"name"`      // 文件名
+	FileHash  string         `gorm:"not null" json:"file_hash"` // 文件哈希
+	Type      string         `gorm:"not null" json:"type"`      // 文件类型: image/video/document/other
+	Size      uint64         `gorm:"not null" json:"size"`      // 文件大小（字节）
+	FolderID  uint           `json:"folder_id"`                 // 所属文件夹ID
+	UserID    uint           `gorm:"not null" json:"user_id"`   // 所属用户ID
+	CreatedAt time.Time      `json:"created_at"`                // 创建时间
+	UpdatedAt time.Time      `json:"updated_at"`                // 更新时间
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`   // 删除时间（软删除）
 }
 
 type FolderModel struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`    // 文件夹ID
-	Name      string    `gorm:"not null" json:"name"`    // 文件夹名
-	ParentID  uint      `json:"parent_id"`               // 父文件夹ID（0表示根文件夹）
-	UserID    uint      `gorm:"not null" json:"user_id"` // 所属用户ID
-	CreatedAt time.Time `json:"created_at"`              // 创建时间
-	UpdatedAt time.Time `json:"updated_at"`              // 更新时间
+	ID        uint           `gorm:"primaryKey" json:"id"`    // 文件夹ID
+	Name      string         `gorm:"not null" json:"name"`    // 文件夹名
+	ParentID  uint           `json:"parent_id"`               // 父文件夹ID（0表示根文件夹）
+	UserID    uint           `gorm:"not null" json:"user_id"` // 所属用户ID
+	CreatedAt time.Time      `json:"created_at"`              // 创建时间
+	UpdatedAt time.Time      `json:"updated_at"`              // 更新时间
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"` // 删除时间（软删除）
 }
 
@@ -89,17 +89,45 @@ const (
 )
 
 type UploadTask struct {
-	ID             uint      `gorm:"primaryKey" json:"id"`                      // uploadId
-	FileHash       string    `gorm:"not null" json:"file_hash"`                 // 文件hash（秒传关键）
-	FileName       string    `gorm:"not null" json:"file_name"`                 // 文件名
-	FileSize       uint64    `gorm:"not null" json:"file_size"`                 // 文件大小（字节）
-	ChunkSize      int       `gorm:"not null" json:"chunk_size"`                // 分片大小（字节）
-	TotalChunks    int       `gorm:"not null" json:"total_chunks"`              // 总分片数
-	UploadedChunks IntSlice  `gorm:"type:json;not null" json:"uploaded_chunks"` // 已上传分片（已上传分片索引数组）
-	FileType       string    `gorm:"not null" json:"file_type"`                 // 文件类型
-	FolderID       uint      `json:"folder_id"`                                 // 所属文件夹ID
-	UserID         uint      `gorm:"not null" json:"user_id"`                   // 所属用户ID
+	ID             uint         `gorm:"primaryKey" json:"id"`                      // uploadId
+	FileHash       string       `gorm:"not null" json:"file_hash"`                 // 文件hash（秒传关键）
+	FileName       string       `gorm:"not null" json:"file_name"`                 // 文件名
+	FileSize       uint64       `gorm:"not null" json:"file_size"`                 // 文件大小（字节）
+	ChunkSize      int          `gorm:"not null" json:"chunk_size"`                // 分片大小（字节）
+	TotalChunks    int          `gorm:"not null" json:"total_chunks"`              // 总分片数
+	UploadedChunks IntSlice     `gorm:"type:json;not null" json:"uploaded_chunks"` // 已上传分片（已上传分片索引数组）
+	FileType       string       `gorm:"not null" json:"file_type"`                 // 文件类型
+	FolderID       uint         `json:"folder_id"`                                 // 所属文件夹ID
+	UserID         uint         `gorm:"not null" json:"user_id"`                   // 所属用户ID
 	Status         UploadStatus `gorm:"not null" json:"status"`                    // uploading / completed
-	CreatedAt      time.Time `gorm:"not null" json:"created_at"`                // 创建时间
-	UpdatedAt      time.Time `gorm:"not null" json:"updated_at"`                // 更新时间
+	CreatedAt      time.Time    `gorm:"not null" json:"created_at"`                // 创建时间
+	UpdatedAt      time.Time    `gorm:"not null" json:"updated_at"`                // 更新时间
 }
+
+type PickUpCodeModel struct {
+	ID          uint             `gorm:"primaryKey" json:"id"`
+	Type        PickUpTargetType `gorm:"type:varchar(16);not null" json:"type"`
+	FileID      *uint            `json:"file_id"`
+	FolderID    *uint            `json:"folder_id"`
+	Download    uint             `gorm:"not null" json:"download"`
+	MaxDownload uint             `gorm:"not null" json:"max_download"`
+	ExpireTime  time.Time        `gorm:"not null" json:"expire_time"`
+	CreatedAt   time.Time        `gorm:"not null;autoCreateTime" json:"created_at"`
+	Code        string           `gorm:"type:char(6);not null;uniqueIndex" json:"code"`
+	Status      PickUpCodeStatus `gorm:"type:varchar(16);not null" json:"status"`
+	UserID      uint             `gorm:"not null" json:"user_id"`
+}
+
+type PickUpTargetType string
+
+const (
+	PickUpTargetTypeFile   PickUpTargetType = "file"
+	PickUpTargetTypeFolder PickUpTargetType = "folder"
+)
+
+type PickUpCodeStatus string
+
+const (
+	PickUpCodeStatusActive PickUpCodeStatus = "Active"
+	PickUpCodeStatusExpire PickUpCodeStatus = "Expired"
+)

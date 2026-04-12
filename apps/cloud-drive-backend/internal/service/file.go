@@ -5,6 +5,7 @@ import (
 	"cloud-drive-backend/internal/model"
 	"cloud-drive-backend/internal/repository"
 	"cloud-drive-backend/internal/utils"
+	"cloud-drive-backend/internal/vo"
 	"errors"
 	"io"
 	"os"
@@ -28,6 +29,9 @@ type FileService interface {
 	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
 	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
+	CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
+	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
+	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
 }
 
 type fileService struct {
@@ -287,4 +291,55 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
 	id, err := s.FileRepository.MakeDirectory(folderID, name, userID)
 	return id, err
+}
+
+func (s *fileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error) {
+	id, err := s.FileRepository.CreatePickUpCode(code)
+	return id, err
+}
+
+func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
+	list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	var voList []vo.PickUpCodeListItem
+	for _, item := range list {
+		var name string
+		if item.Type == model.PickUpTargetTypeFile {
+			file, err := s.FileRepository.GetFileByFileIDAndUserID(*item.FileID, userID)
+			if err != nil {
+				continue
+			}
+			name = file.Name
+		} else {
+			folder, err := s.FileRepository.GetFolderByFolderIDAndUserID(*item.FolderID, userID)
+			if err != nil {
+				continue
+			}
+			name = folder.Name
+		}
+		voList = append(voList, vo.PickUpCodeListItem{
+			ID:          item.ID,
+			Code:        item.Code,
+			FileID:      item.FileID,
+			FolderID:    item.FolderID,
+			Name:        name,
+			Type:        item.Type,
+			Download:    int(item.Download),
+			MaxDownload: int(item.MaxDownload),
+			ExpireTime:  item.ExpireTime,
+			CreatedAt:   item.CreatedAt,
+			Status:      item.Status,
+		})
+	}
+	return voList, nil
+}
+
+func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error) {
+	count, err := s.FileRepository.GetPickUpCodeListCountByUserID(userID)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }

@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-// 导入路由
 import { routes } from './route.ts'
 import { checkLogin } from '../services/apis/auth'
 import { useUserStore } from '../stores/user.ts'
@@ -9,21 +8,27 @@ const router = createRouter({
   routes: routes,
 })
 
-router.beforeEach(async (_to, _from, next) => {
+router.beforeEach(async (to) => {
   const userStore = useUserStore()
 
-  if (userStore.token) {
+  if (to.meta.requiresAuth) {
+    if (!userStore.token) {
+      return { path: '/require-login' }
+    }
+    
     try {
       const res = await checkLogin()
       if (res.code !== 0) {
         userStore.logout()
+        return { path: '/require-login' }
       }
     } catch {
       userStore.logout()
+      return { path: '/require-login' }
     }
   }
 
-  next()
+  return true
 })
 
 export default router
