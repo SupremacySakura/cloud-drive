@@ -3,8 +3,11 @@ package repository
 import (
 	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/model"
+	"errors"
+	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type FileRepository struct {
@@ -227,4 +230,70 @@ func (r *FileRepository) GetPickUpCodeListCountByUserID(userID uint) (int64, err
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *FileRepository) GetPickUpCodeByCode(code string) (*model.PickUpCodeModel, error) {
+	var pickupCode model.PickUpCodeModel
+	if err := r.DB.Where("code = ?", code).First(&pickupCode).Error; err != nil {
+		return nil, err
+	}
+	return &pickupCode, nil
+}
+
+func (r *FileRepository) GetFileByID(fileID uint) (*model.FileModel, error) {
+	var file model.FileModel
+	if err := r.DB.Where("id = ?", fileID).First(&file).Error; err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
+func (r *FileRepository) GetFolderByID(folderID uint) (*model.FolderModel, error) {
+	var folder model.FolderModel
+	if err := r.DB.Where("id = ?", folderID).First(&folder).Error; err != nil {
+		return nil, err
+	}
+	return &folder, nil
+}
+
+func (r *FileRepository) GetChildrenByFolderID(folderID uint) ([]model.FolderModel, []model.FileModel, error) {
+	var folders []model.FolderModel
+	if err := r.DB.Where("parent_id = ?", folderID).Find(&folders).Error; err != nil {
+		return nil, nil, err
+	}
+
+	var files []model.FileModel
+	if err := r.DB.Where("folder_id = ?", folderID).Find(&files).Error; err != nil {
+		return nil, nil, err
+	}
+
+	return folders, files, nil
+}
+
+func (r *FileRepository) IncrementDownloadAndMaybeExpire(codeID uint, now time.Time) error {
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		var code model.PickUpCodeModel
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", codeID).
+			First(&code).Error; err != nil {
+			return err
+		}
+
+		if code.Status != model.PickUpCodeStatusActive {
+			return errors.New("pickup code expired")
+		}
+		if now.After(code.ExpireTime) || code.Download >= code.MaxDownload {
+			code.Status = model.PickUpCodeStatusExpire
+			if err := tx.Save(&code).Error; err != nil {
+				return err
+			}
+			return errors.New("pickup code expired")
+		}
+
+		code.Download++
+		if code.Download >= code.MaxDownload {
+			code.Status = model.PickUpCodeStatusExpire
+		}
+		return tx.Save(&code).Error
+	})
 }

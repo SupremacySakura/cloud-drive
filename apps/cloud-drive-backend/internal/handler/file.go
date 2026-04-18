@@ -7,7 +7,9 @@ import (
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/vo"
+	"errors"
 	"math/rand"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +41,7 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/code", middleware.AuthMiddleware(), h.CreatePickUpCode)
 	r.GET("/code/list", middleware.AuthMiddleware(), h.GetPickUpCodeListByUserIDAndPage)
 	r.GET("/code/count", middleware.AuthMiddleware(), h.GetPickUpCodeListCountByUserID)
+	r.GET("/pickup/download", h.DownloadByPickUpCode)
 }
 
 func getCurrentUserID(c *gin.Context) (uint, bool) {
@@ -368,4 +371,44 @@ func (h *FileHandler) GetPickUpCodeListCountByUserID(c *gin.Context) {
 		return
 	}
 	response.Success(c, count)
+}
+
+func (h *FileHandler) DownloadByPickUpCode(c *gin.Context) {
+	var req dto.DownloadByPickUpCodeReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+
+	code, ok := normalizePickUpCode(req.Code)
+	if !ok {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+
+	setMeta := func(fileName, contentType string) {
+		escapedName := url.PathEscape(fileName)
+		c.Header("Content-Description", "File Transfer")
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+escapedName)
+		c.Header("Content-Transfer-Encoding", "binary")
+		c.Header("Cache-Control", "no-cache")
+	}
+
+	if err := h.FileService.DownloadByPickUpCode(code, c.Writer, setMeta); err != nil {
+		if errors.Is(err, service.ErrPickupCodeExpired) {
+			response.FailWithMsg(c, response.CodeNotFound, "取件码已失效")
+			return
+		}
+		if errors.Is(err, service.ErrPickupTargetNotFound) {
+			response.FailWithMsg(c, response.CodeNotFound, "资源不存在")
+			return
+		}
+		if errors.Is(err, service.ErrPickupEmptyFolder) {
+			response.FailWithMsg(c, response.CodeNotFound, "文件夹为空")
+			return
+		}
+		response.Fail(c, response.CodeServerError)
+		return
+	}
 }

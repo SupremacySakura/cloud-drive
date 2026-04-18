@@ -43,12 +43,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../pages/Login.vue'),
     },
     {
-        path:'/register',
+        path: '/register',
         component: () => import('../pages/Register.vue'),
     },
     {
         path: '/require-login',
         component: () => import('../pages/RequireLogin.vue'),
+    },
+    {
+        path: '/pickup',
+        component: () => import('../pages/FilePickup.vue'),
     }
 ]
 export {

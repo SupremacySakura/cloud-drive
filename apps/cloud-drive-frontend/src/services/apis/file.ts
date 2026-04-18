@@ -121,3 +121,47 @@ export const getPickupCodeCount = async () => {
     }
     return res.data.data ?? 0
 }
+
+const parseDownloadFileName = (contentDisposition?: string) => {
+    if (!contentDisposition) return 'download'
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8Match?.[1]) {
+        return decodeURIComponent(utf8Match[1])
+    }
+    const normalMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
+    if (normalMatch?.[1]) {
+        return normalMatch[1]
+    }
+    return 'download'
+}
+
+export const downloadByPickupCode = async (code: string) => {
+    const res = await request.get<Blob>('/api/file/pickup/download', {
+        params: { code },
+        responseType: 'blob',
+    })
+    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+    if (contentType.includes('application/json')) {
+        const text = await res.data.text()
+        const payload = JSON.parse(text) as { msg?: string }
+        throw new Error(payload.msg || '下载失败')
+    }
+    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+    const fileName = parseDownloadFileName(contentDisposition)
+    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+    const fileSize = blob.size
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+
+    return {
+        fileName,
+        fileSize,
+        contentType
+    }
+}
