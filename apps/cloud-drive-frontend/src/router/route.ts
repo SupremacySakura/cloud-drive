@@ -30,12 +30,7 @@ const routes: RouteRecordRaw[] = [
                 path: '/home/upload',
                 component: () => import('../pages/UploadFile.vue'),
                 meta: { requiresAuth: true },
-            },
-            {
-                path: '/home/share',
-                component: () => import('../pages/ShareFile.vue'),
-                meta: { requiresAuth: true },
-            },
+            }
         ]
     },
     {

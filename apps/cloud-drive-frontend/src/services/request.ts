@@ -19,8 +19,12 @@ request.interceptors.request.use(
 
 request.interceptors.response.use(
     (config) => {
-        if(config?.data?.data?.token){
-            useUserStore().setToken(config.data.data.token)
+        // 只在登录和注册接口响应中更新 token
+        const url = config.config.url
+        if(url && (url.includes('/auth/login') || url.includes('/auth/register'))){
+            if(config?.data?.data?.token){
+                useUserStore().setToken(config.data.data.token)
+            }
         }
         return config
     },

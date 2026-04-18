@@ -59,10 +59,30 @@ type CreatePickUpCodeReq struct {
 }
 
 type GetPickUpCodeListByUserIDAndPageReq struct {
-	Page     int  `form:"page" binding:"min=1"`
-	PageSize int  `form:"page_size" binding:"min=1,max=100"`
+	Page     int `form:"page" binding:"min=1"`
+	PageSize int `form:"page_size" binding:"min=1,max=100"`
 }
 
 type DownloadByPickUpCodeReq struct {
 	Code string `form:"code" binding:"required"`
+}
+
+type PreviewFileReq struct {
+	FileID uint `form:"file_id" binding:"required,min=1"`
+}
+
+type CreatePublicShareLinkReq struct {
+	FileID uint `json:"file_id" binding:"required,min=1"`
+}
+
+type GetPublicShareLinkReq struct {
+	FileID uint `form:"file_id" binding:"required,min=1"`
+}
+
+type DeletePublicShareLinkReq struct {
+	FileID uint `form:"file_id" binding:"required,min=1"`
+}
+
+type OpenPublicShareReq struct {
+	Token string `form:"token" binding:"required"`
 }

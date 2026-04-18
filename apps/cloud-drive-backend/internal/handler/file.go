@@ -7,8 +7,9 @@ import (
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/vo"
+	"crypto/rand"
 	"errors"
-	"math/rand"
+	"math/big"
 	"net/url"
 	"strings"
 
@@ -37,6 +38,11 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/merge", middleware.AuthMiddleware(), h.MergeUploadedChunks)
 	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
 	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
+	r.GET("/preview", middleware.AuthMiddleware(), h.PreviewFileByID)
+	r.POST("/share/link", middleware.AuthMiddleware(), h.CreatePublicShareLink)
+	r.GET("/share/link", middleware.AuthMiddleware(), h.GetPublicShareLink)
+	r.DELETE("/share/link", middleware.AuthMiddleware(), h.DeletePublicShareLink)
+	r.GET("/share/open", h.OpenPublicShare)
 	r.POST("/mkdir", middleware.AuthMiddleware(), h.MakeDirectory)
 	r.POST("/code", middleware.AuthMiddleware(), h.CreatePickUpCode)
 	r.GET("/code/list", middleware.AuthMiddleware(), h.GetPickUpCodeListByUserIDAndPage)
@@ -248,6 +254,143 @@ func (h *FileHandler) GetListCountByFolderIDAndUserID(c *gin.Context) {
 	response.Success(c, count)
 }
 
+func (h *FileHandler) PreviewFileByID(c *gin.Context) {
+	var req dto.PreviewFileReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	setMeta := func(fileName, contentType string) {
+		escapedName := url.PathEscape(fileName)
+		c.Header("Content-Description", "File Preview")
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Disposition", "inline; filename*=UTF-8''"+escapedName)
+		c.Header("Cache-Control", "no-cache")
+	}
+	if err := h.FileService.PreviewFileByID(req.FileID, userID, c.Writer, setMeta); err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+}
+
+func (h *FileHandler) CreatePublicShareLink(c *gin.Context) {
+	var req dto.CreatePublicShareLinkReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	token, err := h.FileService.CreatePublicShareLink(req.FileID, userID)
+	if err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+	shareURL := buildPublicShareURL(c, token)
+	response.Success(c, gin.H{
+		"token": token,
+		"url":   shareURL,
+	})
+}
+
+func (h *FileHandler) GetPublicShareLink(c *gin.Context) {
+	var req dto.GetPublicShareLinkReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	token, err := h.FileService.GetPublicShareLink(req.FileID, userID)
+	if err != nil {
+		if errors.Is(err, service.ErrPublicShareNotFound) {
+			response.Success(c, gin.H{
+				"exists": false,
+				"token":  "",
+				"url":    "",
+			})
+			return
+		}
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+	response.Success(c, gin.H{
+		"exists": true,
+		"token":  token,
+		"url":    buildPublicShareURL(c, token),
+	})
+}
+
+func (h *FileHandler) DeletePublicShareLink(c *gin.Context) {
+	var req dto.DeletePublicShareLinkReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	if err := h.FileService.DeletePublicShareLink(req.FileID, userID); err != nil {
+		if errors.Is(err, service.ErrPublicShareNotFound) {
+			response.FailWithMsg(c, response.CodeNotFound, "分享链接不存在")
+			return
+		}
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+	response.Success(c, nil)
+}
+
+func buildPublicShareURL(c *gin.Context, token string) string {
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := c.GetHeader("X-Forwarded-Proto"); forwarded != "" {
+		parts := strings.Split(forwarded, ",")
+		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			scheme = strings.TrimSpace(parts[0])
+		}
+	}
+	return scheme + "://" + c.Request.Host + "/file/share/open?token=" + url.QueryEscape(token)
+}
+
+func (h *FileHandler) OpenPublicShare(c *gin.Context) {
+	var req dto.OpenPublicShareReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	setMeta := func(fileName, contentType string) {
+		escapedName := url.PathEscape(fileName)
+		c.Header("Content-Description", "Public Share")
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Disposition", "inline; filename*=UTF-8''"+escapedName)
+		c.Header("Cache-Control", "public, max-age=300")
+	}
+	if err := h.FileService.OpenPublicShare(req.Token, c.Writer, setMeta); err != nil {
+		if errors.Is(err, service.ErrPublicShareNotFound) {
+			response.FailWithMsg(c, response.CodeNotFound, "分享链接不存在或文件已删除")
+			return
+		}
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+}
+
 func (h *FileHandler) MakeDirectory(c *gin.Context) {
 	var req dto.MakeDirectoryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -321,7 +464,8 @@ func generatePickUpCode() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	result := make([]byte, 6)
 	for i := range result {
-		result[i] = charset[rand.Intn(len(charset))]
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		result[i] = charset[n.Int64()]
 	}
 	return string(result)
 }

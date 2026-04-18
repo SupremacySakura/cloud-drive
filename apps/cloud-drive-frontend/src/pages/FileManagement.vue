@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { getListByFolderIDAndUserID, getListCountByFolderIDAndUserID, makeDirectory, uploadFile } from '../services/apis/file'
+import { createPublicShareLink, deletePublicShareLink, getListByFolderIDAndUserID, getListCountByFolderIDAndUserID, getPublicShareLink, makeDirectory, previewFileById, uploadFile } from '../services/apis/file'
 import type { FileListItem } from '../services/types/file'
 import { formatBytes, formatTime, iconForListItem, typeLabelForListItem, detectFileType, iconForFile } from '../utils/file'
 import { useUserStore } from '../stores/user'
@@ -14,14 +14,14 @@ type UploadTaskStatus = 'pending' | 'hashing' | 'uploading' | 'merging' | 'succe
 
 // 上传任务类型
 type UploadTask = {
-  id: string
-  file: File
-  targetFolderId: number
-  relativePath: string // 相对于上传根目录的路径
-  status: UploadTaskStatus
-  percent: number
-  message: string | null
-  canceled: boolean
+    id: string
+    file: File
+    targetFolderId: number
+    relativePath: string // 相对于上传根目录的路径
+    status: UploadTaskStatus
+    percent: number
+    message: string | null
+    canceled: boolean
 }
 
 const userStore = useUserStore()
@@ -29,6 +29,7 @@ const userStore = useUserStore()
 type ViewMode = 'list' | 'grid'
 type SortKey = 'name' | 'size' | 'modified'
 type SortDirection = 'asc' | 'desc'
+type PreviewKind = 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'unsupported'
 
 type BreadcrumbItem = { id: number; name: string }
 type DisplayItem = FileListItem & {
@@ -44,6 +45,7 @@ const isSortOpen = ref(false)
 const sortKey = ref<SortKey>('name')
 const sortDirection = ref<SortDirection>('asc')
 const openMenuId = ref<string | null>(null)
+const menuTargetFile = ref<DisplayItem | null>(null)
 const selectedIds = ref<Set<number>>(new Set())
 const menuPosition = ref<{ top: number; left: number } | null>(null)
 
@@ -68,6 +70,20 @@ const isUploadPanelOpen = ref(false)
 const isUploading = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const folderInputRef = ref<HTMLInputElement | null>(null)
+
+// 文件预览相关状态
+const isPreviewModalOpen = ref(false)
+const previewLoading = ref(false)
+const previewError = ref<string | null>(null)
+const previewingFile = ref<DisplayItem | null>(null)
+const previewBlob = ref<Blob | null>(null)
+const previewUrl = ref('')
+const previewMimeType = ref('')
+const previewTextContent = ref('')
+const publicShareLink = ref('')
+const shareError = ref<string | null>(null)
+const isCreatingShareLink = ref(false)
+const isDeletingShareLink = ref(false)
 
 // Toast 提示状态
 const toastMessage = ref('')
@@ -225,9 +241,175 @@ const ownerInitials = (name: string) => {
     return trimmed.slice(0, 2).toUpperCase()
 }
 
+const getFileExt = (name: string) => {
+    const idx = name.lastIndexOf('.')
+    if (idx < 0 || idx === name.length - 1) return ''
+    return name.slice(idx + 1).toLowerCase()
+}
+
+const normalizeMimeType = (mimeType: string) => {
+    return (mimeType || '').split(';')[0].trim().toLowerCase()
+}
+
+const inferMimeType = (name: string, mimeType: string) => {
+    const normalized = normalizeMimeType(mimeType)
+    if (normalized && normalized !== 'application/octet-stream') return normalized
+    const ext = getFileExt(name)
+    if (['txt', 'md', 'json', 'csv', 'log', 'xml', 'yaml', 'yml', 'html', 'css', 'js', 'ts', 'vue'].includes(ext)) return 'text/plain'
+    if (ext === 'pdf') return 'application/pdf'
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext}`
+    if (['mp4', 'webm', 'ogg', 'mov', 'm4v', 'avi', 'mkv', 'mpeg'].includes(ext)) return `video/${ext === 'mov' ? 'mp4' : ext}`
+    if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(ext)) return `audio/${ext}`
+    return 'application/octet-stream'
+}
+
+const isTextPreviewable = (mimeType: string, name: string) => {
+    if (mimeType.startsWith('text/')) return true
+    return ['md', 'json', 'csv', 'log', 'xml', 'yaml', 'yml', 'js', 'ts', 'vue', 'html', 'css'].includes(getFileExt(name))
+}
+
+const previewKind = computed<PreviewKind>(() => {
+    const mime = normalizeMimeType(previewMimeType.value)
+    if (!mime) return 'unsupported'
+    if (mime.startsWith('image/')) return 'image'
+    if (mime === 'application/pdf' || mime.includes('pdf')) return 'pdf'
+    if (mime.startsWith('video/')) return 'video'
+    if (mime.startsWith('audio/')) return 'audio'
+    if (isTextPreviewable(mime, previewingFile.value?.name || '')) return 'text'
+    return 'unsupported'
+})
+
+const revokePreviewUrl = () => {
+    if (!previewUrl.value) return
+    URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = ''
+}
+
+const closePreviewModal = () => {
+    isPreviewModalOpen.value = false
+    previewLoading.value = false
+    previewError.value = null
+    previewingFile.value = null
+    previewBlob.value = null
+    previewMimeType.value = ''
+    previewTextContent.value = ''
+    publicShareLink.value = ''
+    shareError.value = null
+    isCreatingShareLink.value = false
+    isDeletingShareLink.value = false
+    revokePreviewUrl()
+}
+
+const triggerPreviewDownload = () => {
+    if (!previewBlob.value || !previewingFile.value) return
+    const url = URL.createObjectURL(previewBlob.value)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = previewingFile.value.name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+}
+
+const openPreviewModal = async (file: DisplayItem) => {
+    if (file.type !== 'file') return
+    closeOverlays()
+    isPreviewModalOpen.value = true
+    previewLoading.value = true
+    previewError.value = null
+    previewingFile.value = file
+    previewBlob.value = null
+    previewMimeType.value = ''
+    previewTextContent.value = ''
+    publicShareLink.value = ''
+    shareError.value = null
+    isCreatingShareLink.value = false
+    isDeletingShareLink.value = false
+    revokePreviewUrl()
+    void loadExistingPublicShareLink(file.id)
+    try {
+        const { blob, contentType, fileName } = await previewFileById(file.id)
+        const finalName = fileName || file.name
+        const finalType = inferMimeType(finalName, contentType)
+        previewBlob.value = blob
+        previewMimeType.value = finalType
+        if (isTextPreviewable(finalType, finalName)) {
+            const maxTextSize = 1024 * 1024
+            if (blob.size > maxTextSize) {
+                previewTextContent.value = '文本文件较大，已为你展示下载入口，请下载后查看完整内容。'
+            } else {
+                previewTextContent.value = await blob.text()
+            }
+        }
+        previewUrl.value = URL.createObjectURL(blob)
+    } catch (e: any) {
+        previewError.value = e?.message || '预览失败'
+    } finally {
+        previewLoading.value = false
+    }
+}
+
+const handlePreviewFromMenu = async () => {
+    if (!menuTargetFile.value) return
+    await openPreviewModal(menuTargetFile.value)
+}
+
+const generatePublicShareLink = async () => {
+    if (!previewingFile.value || previewingFile.value.type !== 'file') return
+    isCreatingShareLink.value = true
+    shareError.value = null
+    try {
+        const { token } = await createPublicShareLink(previewingFile.value.id)
+        // 始终使用前端构造的 URL，确保包含 /api 前缀以便 Vite 代理正确转发
+        publicShareLink.value = `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
+        displayToast('分享链接已生成', 'success')
+    } catch (e: any) {
+        shareError.value = e?.message || '生成分享链接失败'
+    } finally {
+        isCreatingShareLink.value = false
+    }
+}
+
+const loadExistingPublicShareLink = async (fileId: number) => {
+    shareError.value = null
+    try {
+        const data = await getPublicShareLink(fileId)
+        publicShareLink.value = data?.exists && data?.url ? data.url : ''
+    } catch (e: any) {
+        shareError.value = e?.message || '获取分享链接失败'
+    }
+}
+
+const removePublicShareLink = async () => {
+    if (!previewingFile.value || previewingFile.value.type !== 'file') return
+    isDeletingShareLink.value = true
+    shareError.value = null
+    try {
+        await deletePublicShareLink(previewingFile.value.id)
+        publicShareLink.value = ''
+        displayToast('分享链接已删除', 'success')
+    } catch (e: any) {
+        shareError.value = e?.message || '删除分享链接失败'
+    } finally {
+        isDeletingShareLink.value = false
+    }
+}
+
+const copyPublicShareLink = async () => {
+    if (!publicShareLink.value) return
+    try {
+        await navigator.clipboard.writeText(publicShareLink.value)
+        displayToast('链接已复制', 'success')
+    } catch (e) {
+        displayToast('复制失败，请手动复制', 'error')
+    }
+}
+
 const closeOverlays = () => {
     isSortOpen.value = false
     openMenuId.value = null
+    menuTargetFile.value = null
     menuPosition.value = null
 }
 
@@ -239,20 +421,21 @@ const openFileMenu = (file: DisplayItem, event: MouseEvent) => {
     const menuId = `${file.type}-${file.id}`
     if (openMenuId.value === menuId) {
         openMenuId.value = null
+        menuTargetFile.value = null
         menuPosition.value = null
         return
     }
-    
+
     const button = event.currentTarget as HTMLButtonElement
     const rect = button.getBoundingClientRect()
     const menuHeight = 220 // 菜单大致高度
     const menuWidth = 192 // w-48 = 12rem = 192px
     const padding = 8
-    
+
     // 计算可用空间
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top
-    
+
     // 决定菜单显示在上方还是下方
     let top: number
     if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
@@ -262,17 +445,18 @@ const openFileMenu = (file: DisplayItem, event: MouseEvent) => {
         // 默认显示在下方
         top = rect.bottom + padding
     }
-    
+
     // 水平位置：右对齐
     let left = rect.right - menuWidth
-    
+
     // 确保不超出视口左侧
     if (left < padding) {
         left = padding
     }
-    
+
     menuPosition.value = { top, left }
     openMenuId.value = menuId
+    menuTargetFile.value = file
 }
 
 const openCreateFolderModal = () => {
@@ -658,550 +842,719 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     document.removeEventListener('click', onGlobalClick)
+    revokePreviewUrl()
 })
 </script>
 
 <template>
-    <div class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+    <div
+        class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
         <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
         <template v-else>
-        <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <div class="flex-1 overflow-y-auto p-8">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                    <div>
-                        <nav class="flex items-center gap-2 text-sm text-slate-500 mb-2">
-                            <button class="hover:text-primary flex items-center" type="button"
-                                @click="goToBreadcrumb(0)">
-                                <Icon class="text-sm mr-1" icon="material-symbols:home" />
-                                root
-                            </button>
-                            <template v-for="(bc, idx) in breadcrumbs.slice(1)" :key="bc.id">
-                                <Icon class="text-sm" icon="material-symbols:chevron-right" />
-                                <button v-if="idx + 1 < breadcrumbs.length - 1"
-                                    class="hover:text-primary flex items-center" type="button"
-                                    @click="goToBreadcrumb(idx + 1)">
-                                    {{ bc.name }}
+            <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+                <div class="flex-1 overflow-y-auto p-8">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                        <div>
+                            <nav class="flex items-center gap-2 text-sm text-slate-500 mb-2">
+                                <button class="hover:text-primary flex items-center" type="button"
+                                    @click="goToBreadcrumb(0)">
+                                    <Icon class="text-sm mr-1" icon="material-symbols:home" />
+                                    root
                                 </button>
-                                <span v-else class="text-slate-900 dark:text-slate-100 font-medium">{{ bc.name }}</span>
-                            </template>
-                        </nav>
-                        <h2 class="text-2xl font-bold text-slate-900 dark:text-slate-100">{{ currentFolderName }}</h2>
-                        <p v-if="errorMessage" class="mt-2 text-sm text-red-500">{{ errorMessage }}</p>
+                                <template v-for="(bc, idx) in breadcrumbs.slice(1)" :key="bc.id">
+                                    <Icon class="text-sm" icon="material-symbols:chevron-right" />
+                                    <button v-if="idx + 1 < breadcrumbs.length - 1"
+                                        class="hover:text-primary flex items-center" type="button"
+                                        @click="goToBreadcrumb(idx + 1)">
+                                        {{ bc.name }}
+                                    </button>
+                                    <span v-else class="text-slate-900 dark:text-slate-100 font-medium">{{ bc.name
+                                    }}</span>
+                                </template>
+                            </nav>
+                            <h2 class="text-2xl font-bold text-slate-900 dark:text-slate-100">{{ currentFolderName }}
+                            </h2>
+                            <p v-if="errorMessage" class="mt-2 text-sm text-red-500">{{ errorMessage }}</p>
+                        </div>
+
+                        <div class="flex items-center gap-3">
+                            <!-- 隐藏的文件输入框 -->
+                            <input ref="fileInputRef" type="file" class="hidden" multiple @change="onFileInputChange" />
+                            <input ref="folderInputRef" type="file" class="hidden" webkitdirectory directory
+                                @change="onFolderInputChange" />
+
+                            <button
+                                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                                type="button" @click="openCreateFolderModal">
+                                <Icon class="text-[20px]" icon="material-symbols:create-new-folder" />
+                                新建文件夹
+                            </button>
+
+                            <!-- 上传下拉菜单 -->
+                            <div class="relative group">
+                                <button
+                                    class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                                    type="button">
+                                    <Icon class="text-[20px]" icon="material-symbols:upload" />
+                                    上传
+                                </button>
+                                <!-- 下拉选项 -->
+                                <div
+                                    class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 py-2">
+                                    <button
+                                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                        type="button" @click="openFileDialog">
+                                        <Icon icon="material-symbols:description" />
+                                        上传文件
+                                    </button>
+                                    <button
+                                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                        type="button" @click="openFolderDialog">
+                                        <Icon icon="material-symbols:folder" />
+                                        上传文件夹
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 上传进度按钮（当有任务时显示） -->
+                            <button v-if="uploadTasks.length > 0"
+                                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                                :class="isUploadPanelOpen ? 'bg-slate-50 dark:bg-slate-900' : ''" type="button"
+                                @click="toggleUploadPanel">
+                                <Icon class="text-[20px]"
+                                    :icon="isUploading ? 'material-symbols:progress-activity' : 'material-symbols:check-circle'"
+                                    :class="isUploading ? 'animate-spin text-primary' : 'text-green-500'" />
+                                <span v-if="isUploading">{{ overallProgress }}%</span>
+                                <span v-else>{{uploadTasks.filter(t => t.status === 'success').length}}/{{
+                                    uploadTasks.length }}</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="flex items-center gap-3">
-                        <!-- 隐藏的文件输入框 -->
-                        <input ref="fileInputRef" type="file" class="hidden" multiple @change="onFileInputChange" />
-                        <input ref="folderInputRef" type="file" class="hidden" webkitdirectory directory
-                            @change="onFolderInputChange" />
+                    <div
+                        class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 mb-6 p-3 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+                        <div class="flex items-center gap-2">
+                            <button class="p-2 rounded-lg"
+                                :class="viewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'"
+                                title="List View" type="button" @click="viewMode = 'list'">
+                                <Icon icon="material-symbols:list" />
+                            </button>
+                            <button class="p-2 rounded-lg"
+                                :class="viewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'"
+                                title="Grid View" type="button" @click="viewMode = 'grid'">
+                                <Icon icon="material-symbols:grid-view" />
+                            </button>
 
-                        <button
-                            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
-                            type="button" @click="openCreateFolderModal">
-                            <Icon class="text-[20px]" icon="material-symbols:create-new-folder" />
-                            新建文件夹
-                        </button>
+                            <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2"></div>
 
-                        <!-- 上传下拉菜单 -->
-                        <div class="relative group">
                             <button
-                                class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                                class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
                                 type="button">
-                                <Icon class="text-[20px]" icon="material-symbols:upload" />
-                                上传
+                                <Icon class="text-[18px]" icon="material-symbols:filter-list" />
+                                筛选
                             </button>
-                            <!-- 下拉选项 -->
-                            <div
-                                class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 py-2">
-                                <button
-                                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                    type="button" @click="openFileDialog">
-                                    <Icon icon="material-symbols:description" />
-                                    上传文件
-                                </button>
-                                <button
-                                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                    type="button" @click="openFolderDialog">
-                                    <Icon icon="material-symbols:folder" />
-                                    上传文件夹
+
+                            <div v-if="selectedCount > 0" class="ml-2 flex items-center gap-2 text-sm text-slate-500">
+                                <span>已选择 {{ selectedCount }} 项</span>
+                                <button class="text-primary font-semibold hover:underline" type="button"
+                                    @click="toggleAll(false)">
+                                    清空
                                 </button>
                             </div>
                         </div>
 
-                        <!-- 上传进度按钮（当有任务时显示） -->
-                        <button v-if="uploadTasks.length > 0"
-                            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
-                            :class="isUploadPanelOpen ? 'bg-slate-50 dark:bg-slate-900' : ''" type="button"
-                            @click="toggleUploadPanel">
-                            <Icon class="text-[20px]"
-                                :icon="isUploading ? 'material-symbols:progress-activity' : 'material-symbols:check-circle'"
-                                :class="isUploading ? 'animate-spin text-primary' : 'text-green-500'" />
-                            <span v-if="isUploading">{{ overallProgress }}%</span>
-                            <span v-else>{{ uploadTasks.filter(t => t.status === 'success').length }}/{{ uploadTasks.length }}</span>
-                        </button>
-                    </div>
-                </div>
+                        <div class="relative" @click="onStopPropagation">
+                            <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
+                                <span>Sorted by</span>
+                                <button
+                                    class="flex items-center gap-1 text-slate-900 dark:text-slate-100 hover:text-primary"
+                                    type="button" @click="isSortOpen = !isSortOpen">
+                                    {{ sortLabel }}
+                                    <Icon class="text-sm" icon="material-symbols:expand-more" />
+                                </button>
+                            </div>
 
-                <div
-                    class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 mb-6 p-3 flex flex-wrap items-center justify-between gap-4 shadow-sm">
-                    <div class="flex items-center gap-2">
-                        <button class="p-2 rounded-lg"
-                            :class="viewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'"
-                            title="List View" type="button" @click="viewMode = 'list'">
-                            <Icon icon="material-symbols:list" />
-                        </button>
-                        <button class="p-2 rounded-lg"
-                            :class="viewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'"
-                            title="Grid View" type="button" @click="viewMode = 'grid'">
-                            <Icon icon="material-symbols:grid-view" />
-                        </button>
-
-                        <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2"></div>
-
-                        <button
-                            class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                            type="button">
-                            <Icon class="text-[18px]" icon="material-symbols:filter-list" />
-                            筛选
-                        </button>
-
-                        <div v-if="selectedCount > 0" class="ml-2 flex items-center gap-2 text-sm text-slate-500">
-                            <span>已选择 {{ selectedCount }} 项</span>
-                            <button class="text-primary font-semibold hover:underline" type="button"
-                                @click="toggleAll(false)">
-                                清空
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="relative" @click="onStopPropagation">
-                        <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
-                            <span>Sorted by</span>
-                            <button
-                                class="flex items-center gap-1 text-slate-900 dark:text-slate-100 hover:text-primary"
-                                type="button" @click="isSortOpen = !isSortOpen">
-                                {{ sortLabel }}
-                                <Icon class="text-sm" icon="material-symbols:expand-more" />
-                            </button>
-                        </div>
-
-                        <div v-if="isSortOpen"
-                            class="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-20 py-2">
-                            <button
-                                class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" @click="setSort('name')">
-                                Name
-                            </button>
-                            <button
-                                class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" @click="setSort('modified')">
-                                Last Modified
-                            </button>
-                            <button
-                                class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" @click="setSort('size')">
-                                Size
-                            </button>
-                            <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-                            <div class="px-4 py-2 text-xs text-slate-400">
-                                {{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}
+                            <div v-if="isSortOpen"
+                                class="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-20 py-2">
+                                <button
+                                    class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" @click="setSort('name')">
+                                    Name
+                                </button>
+                                <button
+                                    class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" @click="setSort('modified')">
+                                    Last Modified
+                                </button>
+                                <button
+                                    class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" @click="setSort('size')">
+                                    Size
+                                </button>
+                                <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                                <div class="px-4 py-2 text-xs text-slate-400">
+                                    {{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div v-if="viewMode === 'list'"
-                    class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                            <tr>
-                                <th class="py-4 px-6 w-10">
-                                    <input class="rounded border-slate-300 text-primary focus:ring-primary/20"
-                                        type="checkbox" :checked="allSelected"
-                                        @change="toggleAll(($event.target as HTMLInputElement).checked)" />
-                                </th>
-                                <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">Name
-                                </th>
-                                <th
-                                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
-                                    Type</th>
-                                <th
-                                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell">
-                                    Size</th>
-                                <th
-                                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell">
-                                    Owner</th>
-                                <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">Last
-                                    Modified</th>
-                                <th
-                                    class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
-                                    Actions</th>
-                            </tr>
-                        </thead>
+                    <div v-if="viewMode === 'list'"
+                        class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead
+                                class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                                <tr>
+                                    <th class="py-4 px-6 w-10">
+                                        <input class="rounded border-slate-300 text-primary focus:ring-primary/20"
+                                            type="checkbox" :checked="allSelected"
+                                            @change="toggleAll(($event.target as HTMLInputElement).checked)" />
+                                    </th>
+                                    <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">Name
+                                    </th>
+                                    <th
+                                        class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell">
+                                        Type</th>
+                                    <th
+                                        class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell">
+                                        Size</th>
+                                    <th
+                                        class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell">
+                                        Owner</th>
+                                    <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">Last
+                                        Modified</th>
+                                    <th
+                                        class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                                        Actions</th>
+                                </tr>
+                            </thead>
 
-                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                            <tr v-for="file in sortedFiles" :key="file.id"
-                                class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
+                            <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr v-for="file in sortedFiles" :key="file.id"
+                                    class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
+                                    :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
+                                    <td class="py-4 px-6">
+                                        <input class="rounded border-slate-300 text-primary focus:ring-primary/20"
+                                            type="checkbox" :checked="selectedIds.has(file.id)" @click.stop
+                                            @change="toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)" />
+                                    </td>
+                                    <td class="py-4 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded flex items-center justify-center"
+                                                :class="`${file.iconBg} ${file.iconFg}`">
+                                                <Icon :icon="file.icon" />
+                                            </div>
+                                            <span
+                                                class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs">
+                                                {{ file.name }}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">{{ file.typeLabel
+                                    }}
+                                    </td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">
+                                        {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}
+                                    </td>
+                                    <td class="py-4 px-4 hidden lg:table-cell">
+                                        <div class="flex items-center gap-2">
+                                            <div
+                                                class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">
+                                                {{ ownerInitials('Me') }}
+                                            </div>
+                                            <span class="text-sm text-slate-600 dark:text-slate-400">Me</span>
+                                        </div>
+                                    </td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">{{
+                                        file.lastModifiedText
+                                    }}
+                                    </td>
+                                    <td class="py-4 px-6 text-right" @click="onStopPropagation">
+                                        <button
+                                            class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
+                                            type="button" @click="(e) => openFileMenu(file, e)">
+                                            <Icon icon="material-symbols:more-vert" />
+                                        </button>
+                                    </td>
+                                </tr>
+
+                                <tr v-if="sortedFiles.length === 0" class="opacity-60">
+                                    <td colspan="7" class="p-10 text-center text-slate-500 dark:text-slate-400">
+                                        暂无文件
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div
+                            class="px-6 py-4 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                            <p class="text-xs text-slate-500">
+                                Showing <span class="font-bold text-slate-900 dark:text-slate-100">{{ startIndex }}-{{
+                                    endIndex }}</span>
+                                of <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
+                                items
+                            </p>
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" :disabled="page <= 1 || isLoading" @click="goToPage(page - 1)">
+                                    <Icon class="text-sm" icon="material-symbols:chevron-left" />
+                                </button>
+                                <button v-for="p in pageNumbers" :key="p"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                                    :class="p === page ? 'bg-primary text-white font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'"
+                                    type="button" :disabled="isLoading" @click="goToPage(p)">
+                                    {{ p }}
+                                </button>
+                                <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
+                                <button
+                                    class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" :disabled="page >= totalPages || isLoading"
+                                    @click="goToPage(page + 1)">
+                                    <Icon class="text-sm" icon="material-symbols:chevron-right" />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-else>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div v-for="file in sortedFiles" :key="file.id"
+                                class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
                                 :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
-                                <td class="py-4 px-6">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
+                                            :class="`${file.iconBg} ${file.iconFg}`">
+                                            <Icon class="text-[22px]" :icon="file.icon" />
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div
+                                                class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                                {{
+                                                    file.name }}</div>
+                                            <div class="text-xs text-slate-500">{{ file.typeLabel }}</div>
+                                        </div>
+                                    </div>
                                     <input class="rounded border-slate-300 text-primary focus:ring-primary/20"
                                         type="checkbox" :checked="selectedIds.has(file.id)" @click.stop
                                         @change="toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)" />
-                                </td>
-                                <td class="py-4 px-4">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded flex items-center justify-center"
-                                            :class="`${file.iconBg} ${file.iconFg}`">
-                                            <Icon :icon="file.icon" />
-                                        </div>
-                                        <span
-                                            class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs">
-                                            {{ file.name }}
-                                        </span>
-                                    </div>
-                                </td>
-                                <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">{{ file.typeLabel }}
-                                </td>
-                                <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">
-                                    {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}
-                                </td>
-                                <td class="py-4 px-4 hidden lg:table-cell">
+                                </div>
+
+                                <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
+                                    <span>{{ file.type === 'folder' ? '-' : formatBytes(file.size) }}</span>
+                                    <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
+                                </div>
+
+                                <div class="mt-3 flex items-center justify-between">
                                     <div class="flex items-center gap-2">
                                         <div
                                             class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">
                                             {{ ownerInitials('Me') }}
                                         </div>
-                                        <span class="text-sm text-slate-600 dark:text-slate-400">Me</span>
+                                        <span class="text-xs text-slate-500">Me</span>
                                     </div>
-                                </td>
-                                <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">{{ file.lastModifiedText
-                                }}
-                                </td>
-                                <td class="py-4 px-6 text-right" @click="onStopPropagation">
                                     <button
-                                        class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
-                                        type="button"
-                                        @click="(e) => openFileMenu(file, e)">
+                                        class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/50 dark:hover:bg-slate-900"
+                                        type="button" @click.stop="(e) => openFileMenu(file, e)">
                                         <Icon icon="material-symbols:more-vert" />
                                     </button>
-                                </td>
-                            </tr>
+                                </div>
+                            </div>
 
-                            <tr v-if="sortedFiles.length === 0" class="opacity-60">
-                                <td colspan="7" class="p-10 text-center text-slate-500 dark:text-slate-400">
-                                    暂无文件
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <div
-                        class="px-6 py-4 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <p class="text-xs text-slate-500">
-                            Showing <span class="font-bold text-slate-900 dark:text-slate-100">{{ startIndex }}-{{
-                                endIndex }}</span>
-                            of <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span> items
-                        </p>
-                        <div class="flex items-center gap-2">
-                            <button
-                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" :disabled="page <= 1 || isLoading" @click="goToPage(page - 1)">
-                                <Icon class="text-sm" icon="material-symbols:chevron-left" />
-                            </button>
-                            <button v-for="p in pageNumbers" :key="p"
-                                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
-                                :class="p === page ? 'bg-primary text-white font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'"
-                                type="button" :disabled="isLoading" @click="goToPage(p)">
-                                {{ p }}
-                            </button>
-                            <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
-                            <button
-                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" :disabled="page >= totalPages || isLoading" @click="goToPage(page + 1)">
-                                <Icon class="text-sm" icon="material-symbols:chevron-right" />
-                            </button>
+                            <div v-if="sortedFiles.length === 0"
+                                class="col-span-full p-10 text-center text-slate-500 dark:text-slate-400">
+                                暂无文件
+                            </div>
                         </div>
-                    </div>
-                </div>
 
-                <div v-else>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div v-for="file in sortedFiles" :key="file.id"
-                            class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
-                            :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0"
-                                        :class="`${file.iconBg} ${file.iconFg}`">
-                                        <Icon class="text-[22px]" :icon="file.icon" />
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{{
-                                            file.name }}</div>
-                                        <div class="text-xs text-slate-500">{{ file.typeLabel }}</div>
-                                    </div>
-                                </div>
-                                <input class="rounded border-slate-300 text-primary focus:ring-primary/20" type="checkbox"
-                                    :checked="selectedIds.has(file.id)" @click.stop
-                                    @change="toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)" />
-                            </div>
-
-                            <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
-                                <span>{{ file.type === 'folder' ? '-' : formatBytes(file.size) }}</span>
-                                <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
-                            </div>
-
-                            <div class="mt-3 flex items-center justify-between">
-                                <div class="flex items-center gap-2">
-                                    <div
-                                        class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold">
-                                        {{ ownerInitials('Me') }}
-                                    </div>
-                                    <span class="text-xs text-slate-500">Me</span>
-                                </div>
+                        <!-- 网格视图分页 -->
+                        <div v-if="sortedFiles.length > 0"
+                            class="mt-6 px-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                            <p class="text-xs text-slate-500">
+                                Showing <span class="font-bold text-slate-900 dark:text-slate-100">{{ startIndex }}-{{
+                                    endIndex }}</span>
+                                of <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
+                                items
+                            </p>
+                            <div class="flex items-center gap-2">
                                 <button
-                                    class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/50 dark:hover:bg-slate-900"
-                                    type="button" @click.stop="(e) => openFileMenu(file, e)">
-                                    <Icon icon="material-symbols:more-vert" />
+                                    class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" :disabled="page <= 1 || isLoading" @click="goToPage(page - 1)">
+                                    <Icon class="text-sm" icon="material-symbols:chevron-left" />
+                                </button>
+                                <button v-for="p in pageNumbers" :key="p"
+                                    class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                                    :class="p === page ? 'bg-primary text-white font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'"
+                                    type="button" :disabled="isLoading" @click="goToPage(p)">
+                                    {{ p }}
+                                </button>
+                                <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
+                                <button
+                                    class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                    type="button" :disabled="page >= totalPages || isLoading"
+                                    @click="goToPage(page + 1)">
+                                    <Icon class="text-sm" icon="material-symbols:chevron-right" />
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
 
-                        <div v-if="sortedFiles.length === 0"
-                            class="col-span-full p-10 text-center text-slate-500 dark:text-slate-400">
-                            暂无文件
+                <!-- 创建文件夹模态框 -->
+                <div v-if="isCreateFolderModalOpen"
+                    class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    @click="closeCreateFolderModal">
+                    <div class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md p-6"
+                        @click.stop>
+                        <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">新建文件夹</h3>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                文件夹名称
+                            </label>
+                            <input v-model="newFolderName" type="text"
+                                class="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                placeholder="请输入文件夹名称" @keyup.enter="handleCreateFolder" autofocus />
+                        </div>
+
+                        <div class="flex justify-end gap-3">
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                                type="button" @click="closeCreateFolderModal" :disabled="isCreatingFolder">
+                                取消
+                            </button>
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
+                                type="button" @click="handleCreateFolder"
+                                :disabled="isCreatingFolder || !newFolderName.trim()">
+                                <Icon v-if="isCreatingFolder" icon="material-symbols:progress-activity"
+                                    class="animate-spin" />
+                                {{ isCreatingFolder ? '创建中...' : '创建' }}
+                            </button>
                         </div>
                     </div>
+                </div>
 
-                    <!-- 网格视图分页 -->
-                    <div v-if="sortedFiles.length > 0"
-                        class="mt-6 px-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
-                        <p class="text-xs text-slate-500">
-                            Showing <span class="font-bold text-slate-900 dark:text-slate-100">{{ startIndex }}-{{
-                                endIndex }}</span>
-                            of <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span> items
-                        </p>
+                <!-- 文件预览模态框 -->
+                <div v-if="isPreviewModalOpen"
+                    class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10 bg-slate-900/60 backdrop-blur-sm"
+                    @click="closePreviewModal">
+                    <div class="bg-white dark:bg-slate-950 w-full max-w-6xl h-full max-h-[850px] rounded-xl shadow-2xl flex flex-col overflow-hidden relative border border-slate-200 dark:border-slate-800"
+                        @click.stop>
+                        <div
+                            class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+                            <div class="flex items-center gap-3">
+                                <div
+                                    class="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
+                                    <Icon class="text-[22px]"
+                                        :icon="previewingFile?.icon || 'material-symbols:description'" />
+                                </div>
+                                <div>
+                                    <h2
+                                        class="text-lg font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate max-w-[60vw]">
+                                        {{ previewingFile?.name || '文件预览' }}
+                                    </h2>
+                                    <p class="text-xs text-slate-400">
+                                        {{ previewingFile?.typeLabel || 'File' }} • {{ formatBytes(previewingFile?.size
+                                            || 0) }}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                                type="button" @click="closePreviewModal">
+                                <Icon icon="material-symbols:close" />
+                            </button>
+                        </div>
+
+                        <div class="flex flex-1 overflow-hidden">
+                            <div class="flex-1 bg-slate-50 dark:bg-slate-900/30 relative flex flex-col overflow-hidden">
+                                <div class="flex-1 overflow-y-auto p-6 md:p-8 pb-24">
+                                    <div v-if="previewLoading"
+                                        class="min-h-full flex flex-col items-center justify-center gap-3 text-slate-500">
+                                        <Icon icon="material-symbols:progress-activity"
+                                            class="text-3xl animate-spin text-primary" />
+                                        <span class="text-sm">正在加载预览...</span>
+                                    </div>
+
+                                    <div v-else-if="previewError"
+                                        class="min-h-full flex flex-col items-center justify-center text-center text-red-500 px-6">
+                                        <Icon icon="material-symbols:error" class="text-4xl mb-2" />
+                                        <p class="font-semibold">{{ previewError }}</p>
+                                    </div>
+
+                                    <div v-else-if="previewKind === 'image' && previewUrl"
+                                        class="w-full min-h-full flex items-start justify-center">
+                                        <img :src="previewUrl" :alt="previewingFile?.name"
+                                            class="max-w-full h-auto object-contain rounded-lg shadow-sm border border-slate-200 dark:border-slate-700" />
+                                    </div>
+
+                                    <iframe v-else-if="previewKind === 'pdf' && previewUrl" :src="previewUrl"
+                                        class="w-full min-h-[520px] h-[calc(100vh-300px)] rounded-lg border border-slate-200 dark:border-slate-700 bg-white"
+                                        title="PDF 预览"></iframe>
+
+                                    <div v-else-if="previewKind === 'video' && previewUrl"
+                                        class="w-full min-h-full flex items-start justify-center">
+                                        <video controls :src="previewUrl"
+                                            class="max-w-full rounded-lg bg-black"></video>
+                                    </div>
+
+                                    <div v-else-if="previewKind === 'audio' && previewUrl"
+                                        class="min-h-full flex items-center justify-center">
+                                        <audio controls :src="previewUrl" class="w-full max-w-2xl"></audio>
+                                    </div>
+
+                                    <pre v-else-if="previewKind === 'text'"
+                                        class="w-full h-full overflow-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-4 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap break-words">
+                        {{ previewTextContent || '文件为空' }}</pre>
+
+                                    <div v-else
+                                        class="min-h-full flex flex-col items-center justify-center text-center text-slate-500 px-6">
+                                        <Icon icon="material-symbols:description" class="text-4xl mb-2" />
+                                        <p class="font-semibold">当前文件类型暂不支持在线预览</p>
+                                        <p class="text-xs mt-1">你可以使用下方按钮下载后查看</p>
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-950 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-2 flex items-center gap-1 z-20">
+                                    <button
+                                        class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white font-semibold text-sm transition-all shadow-md shadow-primary/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        type="button" :disabled="!previewBlob" @click="triggerPreviewDownload">
+                                        <Icon class="text-[20px]" icon="material-symbols:download" />
+                                        下载
+                                    </button>
+                                    <button
+                                        class="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-primary/10 text-primary font-semibold text-sm transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        type="button" :disabled="isCreatingShareLink || !previewingFile"
+                                        @click="generatePublicShareLink">
+                                        <Icon class="text-[20px]"
+                                            :icon="isCreatingShareLink ? 'material-symbols:progress-activity' : 'material-symbols:share'"
+                                            :class="isCreatingShareLink ? 'animate-spin' : ''" />
+                                        {{ isCreatingShareLink ? '生成中' : '分享' }}
+                                    </button>
+                                </div>
+
+                                <div v-if="publicShareLink || shareError"
+                                    class="absolute bottom-24 left-1/2 -translate-x-1/2 w-[min(90%,680px)] bg-white dark:bg-slate-950 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-3 z-20">
+                                    <p class="text-xs text-slate-500 mb-2">公网分享链接（免鉴权访问）</p>
+                                    <div v-if="publicShareLink" class="flex items-center gap-2">
+                                        <input :value="publicShareLink" readonly
+                                            class="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200" />
+                                        <button
+                                            class="px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90"
+                                            type="button" @click="copyPublicShareLink">
+                                            复制
+                                        </button>
+                                        <button
+                                            class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                                            type="button" :disabled="isDeletingShareLink" @click="removePublicShareLink">
+                                            {{ isDeletingShareLink ? '删除中' : '删除' }}
+                                        </button>
+                                    </div>
+                                    <p v-else-if="shareError" class="text-sm text-red-500">{{ shareError }}</p>
+                                </div>
+                            </div>
+
+                            <div
+                                class="w-80 border-l border-slate-100 dark:border-slate-800 p-6 flex flex-col bg-white dark:bg-slate-950 overflow-y-auto">
+                                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">文件详情</h3>
+                                <div class="space-y-6">
+                                    <div>
+                                        <label class="text-[11px] text-slate-400 block mb-1">文件名</label>
+                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 break-all">
+                                            {{ previewingFile?.name || '-' }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="text-[11px] text-slate-400 block mb-1">文件大小</label>
+                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{
+                                            formatBytes(previewingFile?.size || 0) }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="text-[11px] text-slate-400 block mb-1">文件类型</label>
+                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{
+                                            previewingFile?.typeLabel || '-' }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="text-[11px] text-slate-400 block mb-1">最后修改</label>
+                                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{
+                                            previewingFile?.lastModifiedText || '-' }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 上传任务面板 -->
+                <div v-if="uploadTasks.length > 0 && isUploadPanelOpen"
+                    class="fixed bottom-4 right-4 w-96 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-40 flex flex-col max-h-[500px]">
+                    <!-- 面板头部 -->
+                    <div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
                         <div class="flex items-center gap-2">
-                            <button
-                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" :disabled="page <= 1 || isLoading" @click="goToPage(page - 1)">
-                                <Icon class="text-sm" icon="material-symbols:chevron-left" />
+                            <Icon v-if="isUploading" icon="material-symbols:progress-activity"
+                                class="animate-spin text-primary" />
+                            <Icon v-else icon="material-symbols:check-circle" class="text-green-500" />
+                            <span class="font-semibold text-slate-900 dark:text-slate-100">
+                                上传任务 ({{uploadTasks.filter(t => t.status === 'success').length}}/{{ uploadTasks.length
+                                }})
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <button v-if="uploadTasks.some(t => t.status === 'success')"
+                                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                                type="button" @click="clearCompleted" title="清理已完成">
+                                <Icon icon="material-symbols:cleaning-services" />
                             </button>
-                            <button v-for="p in pageNumbers" :key="p"
-                                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
-                                :class="p === page ? 'bg-primary text-white font-bold' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'"
-                                type="button" :disabled="isLoading" @click="goToPage(p)">
-                                {{ p }}
-                            </button>
-                            <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
                             <button
-                                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
-                                type="button" :disabled="page >= totalPages || isLoading" @click="goToPage(page + 1)">
-                                <Icon class="text-sm" icon="material-symbols:chevron-right" />
+                                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                                type="button" @click="clearAllTasks" title="关闭面板">
+                                <Icon icon="material-symbols:close" />
                             </button>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- 创建文件夹模态框 -->
-            <div v-if="isCreateFolderModalOpen"
-                class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                @click="closeCreateFolderModal">
-                <div class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md p-6"
-                    @click.stop>
-                    <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">新建文件夹</h3>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                            文件夹名称
-                        </label>
-                        <input v-model="newFolderName" type="text"
-                            class="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            placeholder="请输入文件夹名称" @keyup.enter="handleCreateFolder" autofocus />
-                    </div>
-
-                    <div class="flex justify-end gap-3">
-                        <button
-                            class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
-                            type="button" @click="closeCreateFolderModal" :disabled="isCreatingFolder">
-                            取消
-                        </button>
-                        <button
-                            class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
-                            type="button" @click="handleCreateFolder" :disabled="isCreatingFolder || !newFolderName.trim()">
-                            <Icon v-if="isCreatingFolder" icon="material-symbols:progress-activity"
-                                class="animate-spin" />
-                            {{ isCreatingFolder ? '创建中...' : '创建' }}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 上传任务面板 -->
-            <div v-if="uploadTasks.length > 0 && isUploadPanelOpen"
-                class="fixed bottom-4 right-4 w-96 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-40 flex flex-col max-h-[500px]">
-                <!-- 面板头部 -->
-                <div class="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
-                    <div class="flex items-center gap-2">
-                        <Icon v-if="isUploading" icon="material-symbols:progress-activity"
-                            class="animate-spin text-primary" />
-                        <Icon v-else icon="material-symbols:check-circle" class="text-green-500" />
-                        <span class="font-semibold text-slate-900 dark:text-slate-100">
-                            上传任务 ({{ uploadTasks.filter(t => t.status === 'success').length }}/{{ uploadTasks.length }})
-                        </span>
-                    </div>
-                    <div class="flex items-center gap-1">
-                        <button v-if="uploadTasks.some(t => t.status === 'success')"
-                            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
-                            type="button" @click="clearCompleted" title="清理已完成">
-                            <Icon icon="material-symbols:cleaning-services" />
-                        </button>
-                        <button
-                            class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
-                            type="button" @click="clearAllTasks" title="关闭面板">
-                            <Icon icon="material-symbols:close" />
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 总体进度 -->
-                <div class="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
-                    <div class="flex items-center justify-between text-xs mb-1">
-                        <span class="text-slate-500">总体进度</span>
-                        <span class="font-medium text-slate-700 dark:text-slate-300">{{ overallProgress }}%</span>
-                    </div>
-                    <div class="h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div class="h-1.5 bg-primary rounded-full transition-all duration-300"
-                            :style="{ width: `${overallProgress}%` }"></div>
-                    </div>
-                </div>
-
-                <!-- 任务列表 -->
-                <div class="flex-1 overflow-y-auto p-2 space-y-2 max-h-[350px]">
-                    <div v-for="task in uploadTasks" :key="task.id"
-                        class="flex items-center gap-3 p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
-                        <!-- 文件图标 -->
-                        <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                            :class="iconForFile(task.file).bg + ' ' + iconForFile(task.file).fg">
-                            <Icon :icon="iconForFile(task.file).icon" class="text-sm" />
+                    <!-- 总体进度 -->
+                    <div
+                        class="px-4 py-2 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                        <div class="flex items-center justify-between text-xs mb-1">
+                            <span class="text-slate-500">总体进度</span>
+                            <span class="font-medium text-slate-700 dark:text-slate-300">{{ overallProgress }}%</span>
                         </div>
+                        <div class="h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div class="h-1.5 bg-primary rounded-full transition-all duration-300"
+                                :style="{ width: `${overallProgress}%` }"></div>
+                        </div>
+                    </div>
 
-                        <!-- 文件信息 -->
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center justify-between mb-1">
-                                <p class="text-xs font-medium text-slate-800 dark:text-slate-100 truncate">
-                                    {{ task.file.name }}
-                                </p>
-                                <span class="text-[10px] font-medium uppercase tracking-wider"
-                                    :class="{
+                    <!-- 任务列表 -->
+                    <div class="flex-1 overflow-y-auto p-2 space-y-2 max-h-[350px]">
+                        <div v-for="task in uploadTasks" :key="task.id"
+                            class="flex items-center gap-3 p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
+                            <!-- 文件图标 -->
+                            <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                                :class="iconForFile(task.file).bg + ' ' + iconForFile(task.file).fg">
+                                <Icon :icon="iconForFile(task.file).icon" class="text-sm" />
+                            </div>
+
+                            <!-- 文件信息 -->
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-1">
+                                    <p class="text-xs font-medium text-slate-800 dark:text-slate-100 truncate">
+                                        {{ task.file.name }}
+                                    </p>
+                                    <span class="text-[10px] font-medium uppercase tracking-wider" :class="{
                                         'text-green-500': task.status === 'success',
                                         'text-red-500': task.status === 'failed',
                                         'text-slate-400': task.status === 'canceled',
                                         'text-primary': ['pending', 'hashing', 'uploading', 'merging'].includes(task.status)
                                     }">
-                                    {{ task.status === 'success' ? '成功' : task.status === 'failed' ? '失败' : task.status
-                                        === 'canceled' ? '取消' : task.percent + '%' }}
-                                </span>
+                                        {{ task.status === 'success' ? '成功' : task.status === 'failed' ? '失败' :
+                                            task.status
+                                                === 'canceled' ? '取消' : task.percent + '%' }}
+                                    </span>
+                                </div>
+
+                                <!-- 进度条 -->
+                                <div class="h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div class="h-1 rounded-full transition-all duration-200" :class="task.status === 'failed'
+                                        ? 'bg-red-500' : task.status === 'success' ? 'bg-green-500' : 'bg-primary'"
+                                        :style="{ width: task.percent + '%' }"></div>
+                                </div>
+
+                                <p class="text-[10px] text-slate-400 mt-1 truncate">{{ task.message }}</p>
                             </div>
 
-                            <!-- 进度条 -->
-                            <div class="h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                                <div class="h-1 rounded-full transition-all duration-200" :class="task.status === 'failed'
-                                    ? 'bg-red-500' : task.status === 'success' ? 'bg-green-500' : 'bg-primary'"
-                                    :style="{ width: task.percent + '%' }"></div>
+                            <!-- 操作按钮 -->
+                            <div class="flex items-center gap-1">
+                                <button v-if="task.status === 'failed'"
+                                    class="p-1 text-slate-400 hover:text-primary rounded transition-colors"
+                                    type="button" @click="retryTask(task)">
+                                    <Icon icon="material-symbols:replay" class="text-sm" />
+                                </button>
+                                <button v-if="['uploading', 'hashing', 'merging', 'pending'].includes(task.status)"
+                                    class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                                    type="button" @click="cancelTask(task)">
+                                    <Icon icon="material-symbols:close" class="text-sm" />
+                                </button>
+                                <button v-if="['success', 'failed', 'canceled'].includes(task.status)"
+                                    class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                                    type="button" @click="removeTask(task.id)">
+                                    <Icon icon="material-symbols:delete" class="text-sm" />
+                                </button>
                             </div>
-
-                            <p class="text-[10px] text-slate-400 mt-1 truncate">{{ task.message }}</p>
-                        </div>
-
-                        <!-- 操作按钮 -->
-                        <div class="flex items-center gap-1">
-                            <button v-if="task.status === 'failed'"
-                                class="p-1 text-slate-400 hover:text-primary rounded transition-colors"
-                                type="button" @click="retryTask(task)">
-                                <Icon icon="material-symbols:replay" class="text-sm" />
-                            </button>
-                            <button v-if="['uploading', 'hashing', 'merging', 'pending'].includes(task.status)"
-                                class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" type="button"
-                                @click="cancelTask(task)">
-                                <Icon icon="material-symbols:close" class="text-sm" />
-                            </button>
-                            <button v-if="['success', 'failed', 'canceled'].includes(task.status)"
-                                class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors" type="button"
-                                @click="removeTask(task.id)">
-                                <Icon icon="material-symbols:delete" class="text-sm" />
-                            </button>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Toast 提示 -->
-            <transition enter-active-class="transform ease-out duration-300 transition"
-                enter-from-class="translate-y-2 opacity-0" enter-to-class="translate-y-0 opacity-100"
-                leave-active-class="transition ease-in duration-200" leave-from-class="opacity-100"
-                leave-to-class="opacity-0">
-                <div v-if="showToast"
-                    class="fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border"
-                    :class="{
-                        'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': toastType === 'success',
-                        'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': toastType === 'error',
-                        'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800': toastType === 'info'
-                    }">
-                    <Icon v-if="toastType === 'success'" icon="material-symbols:check-circle"
-                        class="text-2xl text-green-500" />
-                    <Icon v-else-if="toastType === 'error'" icon="material-symbols:error" class="text-2xl text-red-500" />
-                    <Icon v-else icon="material-symbols:info" class="text-2xl text-blue-500" />
-                    <span class="font-medium" :class="{
-                        'text-green-800 dark:text-green-200': toastType === 'success',
-                        'text-red-800 dark:text-red-200': toastType === 'error',
-                        'text-blue-800 dark:text-blue-200': toastType === 'info'
-                    }">                    {{ toastMessage }}</span>
-                </div>
-            </transition>
+                <!-- Toast 提示 -->
+                <transition enter-active-class="transform ease-out duration-300 transition"
+                    enter-from-class="translate-y-2 opacity-0" enter-to-class="translate-y-0 opacity-100"
+                    leave-active-class="transition ease-in duration-200" leave-from-class="opacity-100"
+                    leave-to-class="opacity-0">
+                    <div v-if="showToast"
+                        class="fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border"
+                        :class="{
+                            'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': toastType === 'success',
+                            'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': toastType === 'error',
+                            'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800': toastType === 'info'
+                        }">
+                        <Icon v-if="toastType === 'success'" icon="material-symbols:check-circle"
+                            class="text-2xl text-green-500" />
+                        <Icon v-else-if="toastType === 'error'" icon="material-symbols:error"
+                            class="text-2xl text-red-500" />
+                        <Icon v-else icon="material-symbols:info" class="text-2xl text-blue-500" />
+                        <span class="font-medium" :class="{
+                            'text-green-800 dark:text-green-200': toastType === 'success',
+                            'text-red-800 dark:text-red-200': toastType === 'error',
+                            'text-blue-800 dark:text-blue-200': toastType === 'info'
+                        }"> {{ toastMessage }}</span>
+                    </div>
+                </transition>
 
-            <!-- 文件操作菜单 - 使用 Teleport 挂载到 body 避免被遮挡 -->
-            <Teleport to="body">
-                <div v-if="openMenuId && menuPosition"
-                    class="fixed w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2"
-                    :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
-                    @click="onStopPropagation">
-                    <button
-                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                        type="button">
-                        <Icon class="text-sm" icon="material-symbols:visibility" />
-                        预览
-                    </button>
-                    <button
-                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                        type="button">
-                        <Icon class="text-sm" icon="material-symbols:download" />
-                        下载
-                    </button>
-                    <button
-                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                        type="button">
-                        <Icon class="text-sm" icon="material-symbols:edit" />
-                        重命名
-                    </button>
-                    <button
-                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                        type="button">
-                        <Icon class="text-sm" icon="material-symbols:drive-file-move" />
-                        移动到
-                    </button>
-                    <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-                    <button
-                        class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        type="button">
-                        <Icon class="text-sm" icon="material-symbols:delete" />
-                        删除
-                    </button>
-                </div>
-            </Teleport>
-        </main>
-    </template>
+                <!-- 文件操作菜单 - 使用 Teleport 挂载到 body 避免被遮挡 -->
+                <Teleport to="body">
+                    <div v-if="openMenuId && menuPosition"
+                        class="fixed w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2"
+                        :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
+                        @click="onStopPropagation">
+                        <button
+                            class="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                            :class="menuTargetFile?.type === 'file' ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400'"
+                            type="button" :disabled="menuTargetFile?.type !== 'file'" @click="handlePreviewFromMenu">
+                            <Icon class="text-sm" icon="material-symbols:visibility" />
+                            预览
+                        </button>
+                        <button
+                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                            type="button">
+                            <Icon class="text-sm" icon="material-symbols:download" />
+                            下载
+                        </button>
+                        <button
+                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                            type="button">
+                            <Icon class="text-sm" icon="material-symbols:edit" />
+                            重命名
+                        </button>
+                        <button
+                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                            type="button">
+                            <Icon class="text-sm" icon="material-symbols:drive-file-move" />
+                            移动到
+                        </button>
+                        <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                        <button
+                            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            type="button">
+                            <Icon class="text-sm" icon="material-symbols:delete" />
+                            删除
+                        </button>
+                    </div>
+                </Teleport>
+            </main>
+        </template>
     </div>
 </template>
 

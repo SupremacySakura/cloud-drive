@@ -131,3 +131,11 @@ const (
 	PickUpCodeStatusActive PickUpCodeStatus = "Active"
 	PickUpCodeStatusExpire PickUpCodeStatus = "Expired"
 )
+
+type PublicShareLinkModel struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Token     string    `gorm:"type:varchar(64);not null;uniqueIndex" json:"token"`
+	FileID    uint      `gorm:"not null;index" json:"file_id"`
+	UserID    uint      `gorm:"not null;index" json:"user_id"`
+	CreatedAt time.Time `gorm:"not null;autoCreateTime" json:"created_at"`
+}

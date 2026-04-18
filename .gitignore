@@ -6,3 +6,5 @@ dist
 *.tsbuildinfo
 data/*
 .trae/*
+.playwright-mcp/*
+.env

@@ -1,12 +1,22 @@
 package utils
 
 import (
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte("your_secret_key") // 建议放配置里
+var jwtKey = []byte(getJWTSecret())
+
+func getJWTSecret() string {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		// 开发环境使用默认值，但会输出警告
+		return "your_secret_key"
+	}
+	return secret
+}
 
 type Claims struct {
 	UserID uint `json:"user_id"`
@@ -34,9 +44,13 @@ func ParseToken(tokenStr string) (*Claims, error) {
 		return jwtKey, nil
 	})
 
+	if err != nil || token == nil {
+		return nil, err
+	}
+
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
 		return claims, nil
 	}
 
-	return nil, err
+	return nil, jwt.ErrTokenInvalidClaims
 }

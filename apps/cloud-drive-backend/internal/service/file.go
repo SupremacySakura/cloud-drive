@@ -7,6 +7,8 @@ import (
 	"cloud-drive-backend/internal/repository"
 	"cloud-drive-backend/internal/utils"
 	"cloud-drive-backend/internal/vo"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"mime"
@@ -26,6 +28,7 @@ var (
 	ErrPickupCodeExpired    = errors.New("pickup code expired")
 	ErrPickupTargetNotFound = errors.New("pickup target not found")
 	ErrPickupEmptyFolder    = errors.New("empty folder")
+	ErrPublicShareNotFound  = errors.New("public share not found")
 )
 
 type FileServiceOptions struct {
@@ -43,6 +46,11 @@ type FileService interface {
 	CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
 	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
 	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
+	CreatePublicShareLink(fileID uint, userID uint) (string, error)
+	GetPublicShareLink(fileID uint, userID uint) (string, error)
+	DeletePublicShareLink(fileID uint, userID uint) error
+	OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
 	DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
 
@@ -362,6 +370,119 @@ func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error)
 		return 0, err
 	}
 	return count, nil
+}
+
+func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, error) {
+	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		return "", err
+	}
+	existing, err := s.FileRepository.GetPublicShareLinkByFileIDAndUserID(fileID, userID)
+	if err == nil && existing != nil {
+		return existing.Token, nil
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
+	token, err := generatePublicShareToken()
+	if err != nil {
+		return "", err
+	}
+	link := &model.PublicShareLinkModel{
+		Token:  token,
+		FileID: fileID,
+		UserID: userID,
+	}
+	if err := s.FileRepository.CreatePublicShareLink(link); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *fileService) GetPublicShareLink(fileID uint, userID uint) (string, error) {
+	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		return "", err
+	}
+	link, err := s.FileRepository.GetPublicShareLinkByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrPublicShareNotFound
+		}
+		return "", err
+	}
+	return link.Token, nil
+}
+
+func (s *fileService) DeletePublicShareLink(fileID uint, userID uint) error {
+	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		return err
+	}
+	err = s.FileRepository.DeletePublicShareLinkByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPublicShareNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *fileService) OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error {
+	link, err := s.FileRepository.GetPublicShareLinkByToken(token)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPublicShareNotFound
+		}
+		return err
+	}
+	fileModel, err := s.FileRepository.GetFileByID(link.FileID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPublicShareNotFound
+		}
+		return err
+	}
+	filePath, err := s.BuildFileAbsolutePath(fileModel)
+	if err != nil {
+		return err
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(fileModel.Name))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if setMeta != nil {
+		setMeta(fileModel.Name, contentType)
+	}
+	return s.StreamSingleFile(filePath, writer)
+}
+
+func (s *fileService) PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
+	fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	if err != nil {
+		return err
+	}
+	filePath, err := s.BuildFileAbsolutePath(fileModel)
+	if err != nil {
+		return err
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(fileModel.Name))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if setMeta != nil {
+		setMeta(fileModel.Name, contentType)
+	}
+	return s.StreamSingleFile(filePath, writer)
+}
+
+func generatePublicShareToken() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 func (s *fileService) DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error {

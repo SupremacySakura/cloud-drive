@@ -168,15 +168,9 @@ func (r *FileRepository) GetListByFolderIDAndUserID(folderID uint, userID uint, 
 func (r *FileRepository) GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error) {
 	var count int64
 	err := r.DB.Raw(`
-	SELECT COUNT(*)
-	FROM folder_models
-	WHERE parent_id = ? AND user_id = ?
-
-	UNION ALL
-
-	SELECT COUNT(*)
-	FROM file_models
-	WHERE folder_id = ? AND user_id = ?
+	SELECT 
+		(SELECT COUNT(*) FROM folder_models WHERE parent_id = ? AND user_id = ?) +
+		(SELECT COUNT(*) FROM file_models WHERE folder_id = ? AND user_id = ?)
 `, folderID, userID, folderID, userID).Scan(&count).Error
 	if err != nil {
 		return 0, err
@@ -185,12 +179,12 @@ func (r *FileRepository) GetListCountByFolderIDAndUserID(folderID uint, userID u
 }
 
 func (r *FileRepository) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
-	var folder model.FolderModel
-	err := r.DB.Create(&model.FolderModel{
+	folder := &model.FolderModel{
 		ParentID: folderID,
 		Name:     name,
 		UserID:   userID,
-	}).Error
+	}
+	err := r.DB.Create(folder).Error
 	if err != nil {
 		return 0, err
 	}
@@ -246,6 +240,37 @@ func (r *FileRepository) GetFileByID(fileID uint) (*model.FileModel, error) {
 		return nil, err
 	}
 	return &file, nil
+}
+
+func (r *FileRepository) CreatePublicShareLink(link *model.PublicShareLinkModel) error {
+	return r.DB.Create(link).Error
+}
+
+func (r *FileRepository) GetPublicShareLinkByFileIDAndUserID(fileID uint, userID uint) (*model.PublicShareLinkModel, error) {
+	var link model.PublicShareLinkModel
+	if err := r.DB.Where("file_id = ? AND user_id = ?", fileID, userID).First(&link).Error; err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (r *FileRepository) GetPublicShareLinkByToken(token string) (*model.PublicShareLinkModel, error) {
+	var link model.PublicShareLinkModel
+	if err := r.DB.Where("token = ?", token).First(&link).Error; err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (r *FileRepository) DeletePublicShareLinkByFileIDAndUserID(fileID uint, userID uint) error {
+	result := r.DB.Where("file_id = ? AND user_id = ?", fileID, userID).Delete(&model.PublicShareLinkModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *FileRepository) GetFolderByID(folderID uint) (*model.FolderModel, error) {

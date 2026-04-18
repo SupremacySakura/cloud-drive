@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"cloud-drive-backend/internal/utils"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,6 +13,11 @@ func AuthMiddleware() gin.HandlerFunc {
 		token := c.GetHeader("Authorization")
 		if token == "" {
 			c.JSON(401, gin.H{"error": "未授权"})
+			c.Abort()
+			return
+		}
+		if !strings.HasPrefix(token, "Bearer ") || len(token) <= 7 {
+			c.JSON(401, gin.H{"error": "无效的token"})
 			c.Abort()
 			return
 		}

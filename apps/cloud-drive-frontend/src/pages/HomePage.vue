@@ -6,7 +6,6 @@ const NavItems: NavItem[] = [
     { label: '文件管理', icon: 'material-symbols:folder-open', to: '/home/files' },
     { label: '取件码', icon: 'material-symbols:key-outline', to: '/home/pickup-codes' },
     { label: '上传', icon: 'material-symbols:cloud-upload', to: '/home/upload' },
-    { label: '分享', icon: 'material-symbols:share', to: '/home/share' },
 ]
 </script>
 

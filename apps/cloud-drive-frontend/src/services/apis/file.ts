@@ -165,3 +165,54 @@ export const downloadByPickupCode = async (code: string) => {
         contentType
     }
 }
+
+export const previewFileById = async (fileId: number) => {
+    const res = await request.get<Blob>('/api/file/preview', {
+        params: { file_id: fileId },
+        responseType: 'blob',
+    })
+    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+    if (contentType.includes('application/json')) {
+        const text = await res.data.text()
+        const payload = JSON.parse(text) as { msg?: string }
+        throw new Error(payload.msg || '预览失败')
+    }
+    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+    const fileName = parseDownloadFileName(contentDisposition)
+    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+    return {
+        fileName,
+        contentType: blob.type || contentType || 'application/octet-stream',
+        fileSize: blob.size,
+        blob,
+    }
+}
+
+export const createPublicShareLink = async (fileId: number) => {
+    const res = await request.post<ResponseData<{ token: string; url: string }>>('/api/file/share/link', {
+        file_id: fileId,
+    })
+    if (res.data.code !== 0 || !res.data.data?.token) {
+        throw new Error(res.data.msg || '生成分享链接失败')
+    }
+    return res.data.data
+}
+
+export const getPublicShareLink = async (fileId: number) => {
+    const res = await request.get<ResponseData<{ exists: boolean; token: string; url: string }>>('/api/file/share/link', {
+        params: { file_id: fileId },
+    })
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '获取分享链接失败')
+    }
+    return res.data.data
+}
+
+export const deletePublicShareLink = async (fileId: number) => {
+    const res = await request.delete<ResponseData<null>>('/api/file/share/link', {
+        params: { file_id: fileId },
+    })
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '删除分享链接失败')
+    }
+}
