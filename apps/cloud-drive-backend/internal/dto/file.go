@@ -71,6 +71,28 @@ type PreviewFileReq struct {
 	FileID uint `form:"file_id" binding:"required,min=1"`
 }
 
+type DownloadFileReq struct {
+	FileID   uint `form:"file_id" binding:"omitempty,min=1"`
+	FolderID uint `form:"folder_id" binding:"omitempty,min=1"`
+}
+
+type RenameFileReq struct {
+	FileID   uint   `json:"file_id" binding:"omitempty,min=1"`
+	FolderID uint   `json:"folder_id" binding:"omitempty,min=1"`
+	Name     string `json:"name" binding:"required"`
+}
+
+type MoveFileReq struct {
+	FileID         uint `json:"file_id" binding:"omitempty,min=1"`
+	FolderID       uint `json:"folder_id" binding:"omitempty,min=1"`
+	TargetFolderID uint `json:"target_folder_id"`
+}
+
+type DeleteFileReq struct {
+	FileID   uint `json:"file_id" binding:"omitempty,min=1"`
+	FolderID uint `json:"folder_id" binding:"omitempty,min=1"`
+}
+
 type CreatePublicShareLinkReq struct {
 	FileID uint `json:"file_id" binding:"required,min=1"`
 }
@@ -85,4 +107,28 @@ type DeletePublicShareLinkReq struct {
 
 type OpenPublicShareReq struct {
 	Token string `form:"token" binding:"required"`
+}
+
+type DashboardFileStatItem struct {
+	Type  string `json:"type"`
+	Count int64  `json:"count"`
+	Size  uint64 `json:"size"`
+}
+
+type DashboardRecentActivityItem struct {
+	ID         uint      `json:"id"`
+	Name       string    `json:"name"`
+	FolderName string    `json:"folder_name"`
+	FileType   string    `json:"file_type"`
+	Size       uint64    `json:"size"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type DashboardOverviewResp struct {
+	StorageUsed        uint64                        `json:"storage_used"`
+	StorageTotal       uint64                        `json:"storage_total"`
+	StorageLeft        uint64                        `json:"storage_left"`
+	StorageUsedPercent int                           `json:"storage_used_percent"`
+	FileStats          []DashboardFileStatItem       `json:"file_stats"`
+	RecentActivities   []DashboardRecentActivityItem `json:"recent_activities"`
 }

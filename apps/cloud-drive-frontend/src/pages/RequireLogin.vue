@@ -2,7 +2,7 @@
 import { RouterLink, useRoute } from 'vue-router'
 
 const route = useRoute()
-const currentPath = route.fullPath
+const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
 </script>
 
 <template>
@@ -46,7 +46,7 @@ const currentPath = route.fullPath
                     </div>
 
                     <div class="space-y-4">
-                        <RouterLink :to="{ path: '/login', query: { redirect: currentPath } }"
+                        <RouterLink :to="{ path: '/login', query: { redirect: redirectPath } }"
                             class="w-full h-12 bg-primary hover:bg-primary/90 text-white font-bold rounded-lg shadow-lg shadow-primary/20 transition-all transform active:scale-[0.98] flex items-center justify-center">
                             立即登录
                         </RouterLink>

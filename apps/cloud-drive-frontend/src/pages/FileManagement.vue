@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { createPublicShareLink, deletePublicShareLink, getListByFolderIDAndUserID, getListCountByFolderIDAndUserID, getPublicShareLink, makeDirectory, previewFileById, uploadFile } from '../services/apis/file'
+import { createPublicShareLink, deleteFile, deletePublicShareLink, downloadById, getListByFolderIDAndUserID, getListCountByFolderIDAndUserID, getPublicShareLink, makeDirectory, moveFile, previewFileById, renameFile, uploadFile } from '../services/apis/file'
 import type { FileListItem } from '../services/types/file'
-import { formatBytes, formatTime, iconForListItem, typeLabelForListItem, detectFileType, iconForFile } from '../utils/file'
+import { formatBytes, formatTime, iconForListItem, typeLabelForListItem, detectFileType, iconForFile, sanitizeFileName } from '../utils/file'
 import { useUserStore } from '../stores/user'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
 import { createId } from '../utils/hash'
@@ -46,6 +46,8 @@ const sortKey = ref<SortKey>('name')
 const sortDirection = ref<SortDirection>('asc')
 const openMenuId = ref<string | null>(null)
 const menuTargetFile = ref<DisplayItem | null>(null)
+const downloadingMenuTargetId = ref<string | null>(null)
+const deletingMenuTargetId = ref<string | null>(null)
 const selectedIds = ref<Set<number>>(new Set())
 const menuPosition = ref<{ top: number; left: number } | null>(null)
 
@@ -63,6 +65,18 @@ const errorMessage = ref<string | null>(null)
 const isCreateFolderModalOpen = ref(false)
 const newFolderName = ref('')
 const isCreatingFolder = ref(false)
+const isRenameModalOpen = ref(false)
+const renameName = ref('')
+const isRenaming = ref(false)
+const renamingTarget = ref<DisplayItem | null>(null)
+const isMoveModalOpen = ref(false)
+const isMoving = ref(false)
+const movingTarget = ref<DisplayItem | null>(null)
+const moveTargetFolderId = ref(0)
+const moveBrowserFolderId = ref(0)
+const moveBrowserBreadcrumbs = ref<BreadcrumbItem[]>([{ id: 0, name: 'root' }])
+const moveBrowserFolders = ref<FileListItem[]>([])
+const isMoveBrowserLoading = ref(false)
 
 // 上传相关状态
 const uploadTasks = ref<UploadTask[]>([])
@@ -133,6 +147,7 @@ const sortedFiles = computed(() => {
         const meta = iconForItem(item)
         return {
             ...item,
+            name: sanitizeFileName(item.name),
             ...meta,
             typeLabel: typeLabelForItem(item),
             lastModifiedText: formatTime(item.updated_at),
@@ -355,6 +370,22 @@ const handlePreviewFromMenu = async () => {
     await openPreviewModal(menuTargetFile.value)
 }
 
+const handleDownloadFromMenu = async () => {
+    if (!menuTargetFile.value) return
+    const target = menuTargetFile.value
+    closeOverlays()
+    const targetKey = `${target.type}-${target.id}`
+    downloadingMenuTargetId.value = targetKey
+    try {
+        await downloadById(target.type === 'file' ? target.id : 0, target.type === 'folder' ? target.id : 0)
+        displayToast(`开始下载：${target.name}`, 'success')
+    } catch (e: any) {
+        displayToast(e?.message || '下载失败', 'error')
+    } finally {
+        downloadingMenuTargetId.value = null
+    }
+}
+
 const generatePublicShareLink = async () => {
     if (!previewingFile.value || previewingFile.value.type !== 'file') return
     isCreatingShareLink.value = true
@@ -469,6 +500,74 @@ const closeCreateFolderModal = () => {
     newFolderName.value = ''
 }
 
+const openRenameModal = () => {
+    if (!menuTargetFile.value) return
+    renamingTarget.value = menuTargetFile.value
+    renameName.value = menuTargetFile.value.name
+    isRenameModalOpen.value = true
+    closeOverlays()
+}
+
+const closeRenameModal = () => {
+    isRenameModalOpen.value = false
+    renameName.value = ''
+    renamingTarget.value = null
+}
+
+const loadMoveBrowserFolders = async (folderId: number) => {
+    isMoveBrowserLoading.value = true
+    try {
+        const list = await getListByFolderIDAndUserID(folderId, 1, 100)
+        moveBrowserFolders.value = list.filter((item) => item.type === 'folder')
+    } catch (e: any) {
+        moveBrowserFolders.value = []
+        displayToast(e?.message || '加载目录失败', 'error')
+    } finally {
+        isMoveBrowserLoading.value = false
+    }
+}
+
+const openMoveModal = async () => {
+    if (!menuTargetFile.value) return
+    movingTarget.value = menuTargetFile.value
+    moveTargetFolderId.value = currentFolderId.value
+    moveBrowserFolderId.value = currentFolderId.value
+    moveBrowserBreadcrumbs.value = [...breadcrumbs.value]
+    isMoveModalOpen.value = true
+    closeOverlays()
+    await loadMoveBrowserFolders(moveBrowserFolderId.value)
+}
+
+const closeMoveModal = () => {
+    isMoveModalOpen.value = false
+    isMoving.value = false
+    movingTarget.value = null
+    moveTargetFolderId.value = 0
+    moveBrowserFolderId.value = 0
+    moveBrowserBreadcrumbs.value = [{ id: 0, name: 'root' }]
+    moveBrowserFolders.value = []
+}
+
+const goToMoveBrowserFolder = async (folder: FileListItem) => {
+    moveBrowserFolderId.value = folder.id
+    moveTargetFolderId.value = folder.id
+    moveBrowserBreadcrumbs.value = [...moveBrowserBreadcrumbs.value, { id: folder.id, name: folder.name }]
+    await loadMoveBrowserFolders(folder.id)
+}
+
+const goToMoveBrowserBreadcrumb = async (index: number) => {
+    const next = moveBrowserBreadcrumbs.value[index]
+    if (!next) return
+    moveBrowserBreadcrumbs.value = moveBrowserBreadcrumbs.value.slice(0, index + 1)
+    moveBrowserFolderId.value = next.id
+    moveTargetFolderId.value = next.id
+    await loadMoveBrowserFolders(next.id)
+}
+
+const selectMoveTargetCurrent = () => {
+    moveTargetFolderId.value = moveBrowserFolderId.value
+}
+
 const handleCreateFolder = async () => {
     const name = newFolderName.value.trim()
     if (!name) {
@@ -495,6 +594,91 @@ const handleCreateFolder = async () => {
         errorMessage.value = e?.message || '创建文件夹失败'
     } finally {
         isCreatingFolder.value = false
+    }
+}
+
+const handleRename = async () => {
+    if (!renamingTarget.value) return
+    const nextName = renameName.value.trim()
+    if (!nextName) {
+        errorMessage.value = '名称不能为空'
+        return
+    }
+    if (nextName === renamingTarget.value.name) {
+        closeRenameModal()
+        return
+    }
+    isRenaming.value = true
+    errorMessage.value = null
+    try {
+        await renameFile({
+            file_id: renamingTarget.value.type === 'file' ? renamingTarget.value.id : 0,
+            folder_id: renamingTarget.value.type === 'folder' ? renamingTarget.value.id : 0,
+            name: nextName,
+        })
+        breadcrumbs.value = breadcrumbs.value.map((item) =>
+            item.id === renamingTarget.value?.id ? { ...item, name: nextName } : item,
+        )
+        displayToast('重命名成功', 'success')
+        closeRenameModal()
+        await fetchFolder(currentFolderId.value)
+    } catch (e: any) {
+        const msg = e?.message || '重命名失败'
+        errorMessage.value = msg
+        displayToast(msg, 'error')
+    } finally {
+        isRenaming.value = false
+    }
+}
+
+const handleMove = async () => {
+    if (!movingTarget.value) return
+    if (movingTarget.value.type === 'folder' && moveTargetFolderId.value === movingTarget.value.id) {
+        displayToast('不能移动到自身目录', 'error')
+        return
+    }
+    isMoving.value = true
+    errorMessage.value = null
+    try {
+        await moveFile({
+            file_id: movingTarget.value.type === 'file' ? movingTarget.value.id : 0,
+            folder_id: movingTarget.value.type === 'folder' ? movingTarget.value.id : 0,
+            target_folder_id: moveTargetFolderId.value,
+        })
+        displayToast('移动成功', 'success')
+        closeMoveModal()
+        await fetchFolder(currentFolderId.value)
+    } catch (e: any) {
+        const msg = e?.message || '移动失败'
+        errorMessage.value = msg
+        displayToast(msg, 'error')
+    } finally {
+        isMoving.value = false
+    }
+}
+
+const handleDeleteFromMenu = async () => {
+    if (!menuTargetFile.value) return
+    const target = menuTargetFile.value
+    const targetKey = `${target.type}-${target.id}`
+    const confirmed = window.confirm(`确认删除${target.type === 'folder' ? '文件夹' : '文件'}「${target.name}」吗？此操作不可撤销。`)
+    if (!confirmed) return
+
+    closeOverlays()
+    deletingMenuTargetId.value = targetKey
+    try {
+        await deleteFile({
+            file_id: target.type === 'file' ? target.id : 0,
+            folder_id: target.type === 'folder' ? target.id : 0,
+        })
+        displayToast('删除成功', 'success')
+        await fetchFolder(currentFolderId.value)
+    } catch (e: any) {
+        const msg = e?.message || '删除失败'
+        errorMessage.value = msg
+        displayToast(msg, 'error')
+    } finally {
+        deletingMenuTargetId.value = null
     }
 }
 
@@ -1236,6 +1420,114 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
 
+                <!-- 重命名模态框 -->
+                <div v-if="isRenameModalOpen"
+                    class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    @click="closeRenameModal">
+                    <div class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md p-6"
+                        @click.stop>
+                        <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">重命名</h3>
+                        <p class="text-sm text-slate-500 mb-4">当前对象：{{ renamingTarget?.name || '-' }}</p>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">新名称</label>
+                            <input v-model="renameName" type="text"
+                                class="w-full px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                placeholder="请输入新名称" @keyup.enter="handleRename" autofocus />
+                        </div>
+                        <div class="flex justify-end gap-3">
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                                type="button" @click="closeRenameModal" :disabled="isRenaming">
+                                取消
+                            </button>
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                type="button" @click="handleRename" :disabled="isRenaming || !renameName.trim()">
+                                <Icon v-if="isRenaming" icon="material-symbols:progress-activity"
+                                    class="animate-spin" />
+                                {{ isRenaming ? '保存中...' : '保存' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 移动到模态框 -->
+                <div v-if="isMoveModalOpen"
+                    class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    @click="closeMoveModal">
+                    <div class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-2xl p-6"
+                        @click.stop>
+                        <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">移动到</h3>
+                        <p class="text-sm text-slate-500 mb-4">当前对象：{{ movingTarget?.name || '-' }}</p>
+
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                            <nav class="flex items-center gap-2 text-xs text-slate-500 overflow-x-auto">
+                                <template v-for="(bc, idx) in moveBrowserBreadcrumbs" :key="`${bc.id}-${idx}`">
+                                    <button v-if="idx < moveBrowserBreadcrumbs.length - 1"
+                                        class="hover:text-primary whitespace-nowrap" type="button"
+                                        @click="goToMoveBrowserBreadcrumb(idx)">
+                                        {{ bc.name }}
+                                    </button>
+                                    <span v-else
+                                        class="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                                        {{ bc.name }}
+                                    </span>
+                                    <Icon v-if="idx < moveBrowserBreadcrumbs.length - 1"
+                                        icon="material-symbols:chevron-right" class="text-xs" />
+                                </template>
+                            </nav>
+                            <button
+                                class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900"
+                                type="button" @click="selectMoveTargetCurrent">
+                                选中当前目录
+                            </button>
+                        </div>
+
+                        <div class="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+                            <div class="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                                <div v-if="isMoveBrowserLoading" class="p-4 text-sm text-slate-500">
+                                    正在加载目录...
+                                </div>
+                                <button v-for="folder in moveBrowserFolders" :key="folder.id"
+                                    class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    type="button"
+                                    :disabled="movingTarget?.type === 'folder' && movingTarget?.id === folder.id"
+                                    @click="goToMoveBrowserFolder(folder)">
+                                    <span class="flex items-center gap-2 min-w-0">
+                                        <Icon icon="material-symbols:folder" class="text-primary shrink-0" />
+                                        <span class="truncate text-sm text-slate-700 dark:text-slate-300">{{ folder.name
+                                        }}</span>
+                                    </span>
+                                    <Icon icon="material-symbols:chevron-right" class="text-slate-400" />
+                                </button>
+                                <div v-if="!isMoveBrowserLoading && moveBrowserFolders.length === 0"
+                                    class="p-4 text-sm text-slate-500">
+                                    当前目录下没有子文件夹
+                                </div>
+                            </div>
+                        </div>
+
+                        <p class="mt-3 text-xs text-slate-500">
+                            已选目标目录 ID：<span class="font-semibold text-slate-700 dark:text-slate-300">{{
+                                moveTargetFolderId }}</span>
+                        </p>
+
+                        <div class="mt-4 flex justify-end gap-3">
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                                type="button" @click="closeMoveModal" :disabled="isMoving">
+                                取消
+                            </button>
+                            <button
+                                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                type="button" @click="handleMove" :disabled="isMoving">
+                                <Icon v-if="isMoving" icon="material-symbols:progress-activity" class="animate-spin" />
+                                {{ isMoving ? '移动中...' : '确认移动' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 文件预览模态框 -->
                 <div v-if="isPreviewModalOpen"
                     class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10 bg-slate-900/60 backdrop-blur-sm"
@@ -1349,7 +1641,8 @@ onBeforeUnmount(() => {
                                         </button>
                                         <button
                                             class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed"
-                                            type="button" :disabled="isDeletingShareLink" @click="removePublicShareLink">
+                                            type="button" :disabled="isDeletingShareLink"
+                                            @click="removePublicShareLink">
                                             {{ isDeletingShareLink ? '删除中' : '删除' }}
                                         </button>
                                     </div>
@@ -1528,26 +1821,26 @@ onBeforeUnmount(() => {
                         </button>
                         <button
                             class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                            type="button">
+                            type="button" :disabled="!!downloadingMenuTargetId" @click="handleDownloadFromMenu">
                             <Icon class="text-sm" icon="material-symbols:download" />
                             下载
                         </button>
                         <button
                             class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                            type="button">
+                            type="button" @click="openRenameModal">
                             <Icon class="text-sm" icon="material-symbols:edit" />
                             重命名
                         </button>
                         <button
                             class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
-                            type="button">
+                            type="button" @click="openMoveModal">
                             <Icon class="text-sm" icon="material-symbols:drive-file-move" />
                             移动到
                         </button>
                         <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
                         <button
                             class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                            type="button">
+                            type="button" :disabled="!!deletingMenuTargetId" @click="handleDeleteFromMenu">
                             <Icon class="text-sm" icon="material-symbols:delete" />
                             删除
                         </button>

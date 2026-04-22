@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import { getPickupCodeList, getPickupCodeCount } from '../services/apis/file'
 import type { PickupCodeItem, PickupCodeType } from '../services/types/file'
 import CreatePickupCodeModal from '../components/bussiness/CreatePickupCodeModal.vue'
+import { sanitizeFileName } from '../utils/file'
 
 const pickupList = ref<PickupCodeItem[]>([])
 const loading = ref(false)
@@ -11,6 +13,7 @@ const showCreateModal = ref(false)
 const showDetailModal = ref(false)
 const selectedItem = ref<PickupCodeItem | null>(null)
 const copySuccess = ref<string | null>(null)
+const router = useRouter()
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -68,7 +71,10 @@ const fetchData = async () => {
             getPickupCodeList(currentPage.value, pageSize.value),
             getPickupCodeCount()
         ])
-        pickupList.value = list ?? []
+        pickupList.value = (list ?? []).map(item => ({
+            ...item,
+            name: sanitizeFileName(item.name)
+        }))
         totalCount.value = count ?? 0
     } catch (error) {
         console.error('Failed to fetch pickup codes:', error)
@@ -87,6 +93,10 @@ const handlePageChange = (page: number) => {
 
 const openCreateModal = () => {
     showCreateModal.value = true
+}
+
+const goToFilePickup = () => {
+    router.push('/pickup')
 }
 
 const closeCreateModal = () => {
@@ -111,7 +121,10 @@ const handleCopyCode = async (code: string) => {
 }
 
 const handleViewDetail = (item: PickupCodeItem) => {
-    selectedItem.value = item
+    selectedItem.value = {
+        ...item,
+        name: sanitizeFileName(item.name)
+    }
     showDetailModal.value = true
 }
 
@@ -135,12 +148,20 @@ onMounted(() => {
                         <h2 class="text-3xl font-black tracking-tight text-slate-900 dark:text-white">取件码管理</h2>
                         <p class="text-slate-500 text-sm">创建、监控并撤销安全的文件提取码。</p>
                     </div>
-                    <button
-                        class="flex items-center gap-2 cursor-pointer bg-primary hover:bg-primary/90 text-white rounded-lg h-11 px-6 font-bold transition-all shadow-lg shadow-primary/20"
-                        type="button" @click="openCreateModal">
-                        <Icon icon="material-symbols:add-rounded" class="text-xl" />
-                        <span>创建新取件码</span>
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <button
+                            class="flex items-center gap-2 cursor-pointer border border-primary/30 text-primary hover:bg-primary/5 rounded-lg h-11 px-6 font-bold transition-all"
+                            type="button" @click="goToFilePickup">
+                            <Icon icon="material-symbols:download-rounded" class="text-xl" />
+                            <span>去取件</span>
+                        </button>
+                        <button
+                            class="flex items-center gap-2 cursor-pointer bg-primary hover:bg-primary/90 text-white rounded-lg h-11 px-6 font-bold transition-all shadow-lg shadow-primary/20"
+                            type="button" @click="openCreateModal">
+                            <Icon icon="material-symbols:add-rounded" class="text-xl" />
+                            <span>创建新取件码</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -279,7 +300,7 @@ onMounted(() => {
                                         </div>
                                     </td>
                                     <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">{{ item.download
-                                        }} /
+                                    }} /
                                         {{ item.max_download }}</td>
                                     <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap hidden lg:table-cell">
                                         {{

@@ -13,18 +13,27 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth) {
     if (!userStore.token) {
-      return { path: '/require-login' }
+      return {
+        path: '/require-login',
+        query: { redirect: to.fullPath },
+      }
     }
     
     try {
       const res = await checkLogin()
       if (res.code !== 0) {
         userStore.logout()
-        return { path: '/require-login' }
+        return {
+          path: '/require-login',
+          query: { redirect: to.fullPath },
+        }
       }
     } catch {
       userStore.logout()
-      return { path: '/require-login' }
+      return {
+        path: '/require-login',
+        query: { redirect: to.fullPath },
+      }
     }
   }
 

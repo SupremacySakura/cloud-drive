@@ -75,3 +75,13 @@ export const formatTime = (value: string) => {
     if (Number.isNaN(d.getTime())) return value
     return d.toLocaleString()
 }
+
+/**
+ * 清理文件名中的控制字符，避免不可见字符影响展示
+ * @param name 文件名
+ * @returns 清理后的文件名
+ */
+export const sanitizeFileName = (name: string): string => {
+    if (!name) return ''
+    return name.replace(/[\x00-\x1f\x7f]/g, '')
+}

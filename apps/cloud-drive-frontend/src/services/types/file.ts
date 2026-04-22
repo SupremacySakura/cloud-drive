@@ -41,6 +41,23 @@ export type MakeDirectoryRequest = {
     name: string
 }
 
+export type RenameFileRequest = {
+    file_id: number
+    folder_id: number
+    name: string
+}
+
+export type MoveFileRequest = {
+    file_id: number
+    folder_id: number
+    target_folder_id: number
+}
+
+export type DeleteFileRequest = {
+    file_id: number
+    folder_id: number
+}
+
 export type PickupCodeType = 'file' | 'folder'
 export type PickupCodeStatus = 'Active' | 'Expired'
 
@@ -70,4 +87,28 @@ export interface PickupCodeItem {
     expire_time: string
     created_at: string
     status: PickupCodeStatus
+}
+
+export interface DashboardFileStatItem {
+    type: string
+    count: number
+    size: number
+}
+
+export interface DashboardRecentActivityItem {
+    id: number
+    name: string
+    folder_name: string
+    file_type: string
+    size: number
+    updated_at: string
+}
+
+export interface DashboardOverviewResponse {
+    storage_used: number
+    storage_total: number
+    storage_left: number
+    storage_used_percent: number
+    file_stats: DashboardFileStatItem[]
+    recent_activities: DashboardRecentActivityItem[]
 }

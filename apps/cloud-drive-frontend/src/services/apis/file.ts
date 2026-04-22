@@ -1,7 +1,7 @@
 import request from '../request'
 import type { ResponseData } from '../types'
 import { calculateHash } from '../../utils/hash'
-import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest, CreatePickupCodeRequest, PickupCodeItem } from '../types/file'
+import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest, RenameFileRequest, MoveFileRequest, DeleteFileRequest, CreatePickupCodeRequest, PickupCodeItem, DashboardOverviewResponse } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
 export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onProgress: (progress: number) => void) => {
@@ -73,6 +73,14 @@ export const getListByFolderIDAndUserID = async (folderID: number, page: number,
     return res.data.data
 }
 
+export const getDashboardOverview = async () => {
+    const res = await request.get<ResponseData<DashboardOverviewResponse>>('/api/file/dashboard/overview')
+    if (res.data.code !== 0 || !res.data.data) {
+        throw new Error(res.data.msg || '获取仪表盘数据失败')
+    }
+    return res.data.data
+}
+
 export const getListCountByFolderIDAndUserID = async (folderID: number) => {
     const res = await request.get<ResponseData<number>>('/api/file/list/count', {
         params: {
@@ -91,6 +99,27 @@ export const makeDirectory = async (data: MakeDirectoryRequest) => {
         return 0
     }
     return res.data.data
+}
+
+export const renameFile = async (data: RenameFileRequest) => {
+    const res = await request.post<ResponseData<null>>('/api/file/rename', data)
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '重命名失败')
+    }
+}
+
+export const moveFile = async (data: MoveFileRequest) => {
+    const res = await request.post<ResponseData<null>>('/api/file/move', data)
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '移动失败')
+    }
+}
+
+export const deleteFile = async (data: DeleteFileRequest) => {
+    const res = await request.post<ResponseData<null>>('/api/file/delete', data)
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '删除失败')
+    }
 }
 
 export const createPickupCode = async (data: CreatePickupCodeRequest) => {
@@ -185,6 +214,39 @@ export const previewFileById = async (fileId: number) => {
         contentType: blob.type || contentType || 'application/octet-stream',
         fileSize: blob.size,
         blob,
+    }
+}
+
+export const downloadById = async (fileId: number, folderId: number) => {
+    const res = await request.get<Blob>('/api/file/download', {
+        params: {
+            ...(fileId > 0 ? { file_id: fileId } : {}),
+            ...(folderId > 0 ? { folder_id: folderId } : {}),
+        },
+        responseType: 'blob',
+    })
+    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+    if (contentType.includes('application/json')) {
+        const text = await res.data.text()
+        const payload = JSON.parse(text) as { msg?: string }
+        throw new Error(payload.msg || '下载失败')
+    }
+    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+    const fileName = parseDownloadFileName(contentDisposition)
+    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+    const fileSize = blob.size
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    return {
+        fileName,
+        fileSize,
+        contentType,
     }
 }
 

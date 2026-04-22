@@ -37,12 +37,6 @@ const defaultNavItems: NavItem[] = [
 
 const items = computed(() => props.navItems ?? defaultNavItems)
 
-const storageWidth = computed(() => {
-    const percent = Number.isFinite(props.storagePercent) ? props.storagePercent : 0
-    const clamped = Math.min(100, Math.max(0, percent))
-    return `${clamped}%`
-})
-
 const normalizePath = (path: string) => {
     const normalized = path.replace(/\/+$/, '')
     return normalized || '/'
@@ -87,16 +81,6 @@ const iconClass = (to: string) => {
                     <span class="text-sm font-medium">{{ item.label }}</span>
                 </RouterLink>
             </nav>
-        </div>
-
-        <div class="mt-10 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-            <p class="text-xs text-slate-500 mb-2">存储使用情况</p>
-            <div class="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                <div class="h-full bg-primary" :style="{ width: storageWidth }"></div>
-            </div>
-            <p class="text-[10px] mt-2 text-slate-500 font-medium">
-                {{ storageDetail }}
-            </p>
         </div>
     </aside>
 </template>

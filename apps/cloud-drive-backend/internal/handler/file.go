@@ -36,14 +36,19 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/init", middleware.AuthMiddleware(), h.InitUploadFile)
 	r.POST("/chunk", middleware.AuthMiddleware(), h.UploadFileChunk)
 	r.POST("/merge", middleware.AuthMiddleware(), h.MergeUploadedChunks)
+	r.GET("/dashboard/overview", middleware.AuthMiddleware(), h.GetDashboardOverview)
 	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
 	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
 	r.GET("/preview", middleware.AuthMiddleware(), h.PreviewFileByID)
+	r.GET("/download", middleware.AuthMiddleware(), h.DownloadFileByID)
 	r.POST("/share/link", middleware.AuthMiddleware(), h.CreatePublicShareLink)
 	r.GET("/share/link", middleware.AuthMiddleware(), h.GetPublicShareLink)
 	r.DELETE("/share/link", middleware.AuthMiddleware(), h.DeletePublicShareLink)
 	r.GET("/share/open", h.OpenPublicShare)
 	r.POST("/mkdir", middleware.AuthMiddleware(), h.MakeDirectory)
+	r.POST("/rename", middleware.AuthMiddleware(), h.RenameFileByID)
+	r.POST("/move", middleware.AuthMiddleware(), h.MoveFileByID)
+	r.POST("/delete", middleware.AuthMiddleware(), h.DeleteFileByID)
 	r.POST("/code", middleware.AuthMiddleware(), h.CreatePickUpCode)
 	r.GET("/code/list", middleware.AuthMiddleware(), h.GetPickUpCodeListByUserIDAndPage)
 	r.GET("/code/count", middleware.AuthMiddleware(), h.GetPickUpCodeListCountByUserID)
@@ -192,6 +197,35 @@ func (h *FileHandler) MergeUploadedChunks(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// GetDashboardOverview godoc
+// @Summary 获取仪表盘概览数据
+// @Description 获取当前用户的空间使用、文件类型统计、最近活动
+// @Tags file
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.Response{data=dto.DashboardOverviewResp} "成功返回（code=0,data=dto.DashboardOverviewResp）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/dashboard/overview [get]
+func (h *FileHandler) GetDashboardOverview(c *gin.Context) {
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	user, err := h.AuthService.GetUserByID(userID)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	overview, err := h.FileService.GetDashboardOverview(userID, user.StorageLimit)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, overview)
+}
+
 // GetListByFolderIDAndUserID godoc
 // @Summary 获取文件夹下的文件列表
 // @Description 获取文件夹下的文件列表
@@ -273,6 +307,50 @@ func (h *FileHandler) PreviewFileByID(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 	}
 	if err := h.FileService.PreviewFileByID(req.FileID, userID, c.Writer, setMeta); err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+}
+
+// DownloadFileByID godoc
+// @Summary 下载文件或文件夹
+// @Description 通过 file_id 下载单文件，或通过 folder_id 下载文件夹（zip）
+// @Tags file
+// @Accept json
+// @Produce octet-stream
+// @Param file_id query int false "文件ID"
+// @Param folder_id query int false "文件夹ID"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/download [get]
+func (h *FileHandler) DownloadFileByID(c *gin.Context) {
+	var req dto.DownloadFileReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	if (req.FileID == 0 && req.FolderID == 0) || (req.FileID > 0 && req.FolderID > 0) {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	setMeta := func(fileName, contentType string) {
+		escapedName := url.PathEscape(fileName)
+		c.Header("Content-Description", "File Download")
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+escapedName)
+		c.Header("Content-Transfer-Encoding", "binary")
+		c.Header("Cache-Control", "no-cache")
+	}
+	if err := h.FileService.DownloadByIDs(userID, req.FileID, req.FolderID, c.Writer, setMeta); err != nil {
+		if errors.Is(err, service.ErrPickupEmptyFolder) {
+			response.FailWithMsg(c, response.CodeNotFound, "文件夹为空")
+			return
+		}
 		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
@@ -408,6 +486,110 @@ func (h *FileHandler) MakeDirectory(c *gin.Context) {
 		return
 	}
 	response.Success(c, id)
+}
+
+// RenameFileByID godoc
+// @Summary 重命名文件或文件夹
+// @Description 通过 file_id 或 folder_id 重命名（两者必须且只能传一个）
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param data body dto.RenameFileReq true "重命名参数"
+// @Success 200 {object} response.Response "成功返回（code=0）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/rename [post]
+func (h *FileHandler) RenameFileByID(c *gin.Context) {
+	var req dto.RenameFileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	if (req.FileID == 0 && req.FolderID == 0) || (req.FileID > 0 && req.FolderID > 0) {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	if err := h.FileService.RenameByIDs(userID, req.FileID, req.FolderID, name); err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+	response.Success(c, nil)
+}
+
+// MoveFileByID godoc
+// @Summary 移动文件或文件夹
+// @Description 通过 file_id 或 folder_id 指定要移动的对象，target_folder_id 指定目标目录（0 表示根目录）
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param data body dto.MoveFileReq true "移动参数"
+// @Success 200 {object} response.Response "成功返回（code=0）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/move [post]
+func (h *FileHandler) MoveFileByID(c *gin.Context) {
+	var req dto.MoveFileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	if (req.FileID == 0 && req.FolderID == 0) || (req.FileID > 0 && req.FolderID > 0) {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	if err := h.FileService.MoveByIDs(userID, req.FileID, req.FolderID, req.TargetFolderID); err != nil {
+		response.FailWithMsg(c, response.CodeInvalidParam, "移动失败：目标目录无效或无权限")
+		return
+	}
+	response.Success(c, nil)
+}
+
+// DeleteFileByID godoc
+// @Summary 删除文件或文件夹
+// @Description 通过 file_id 或 folder_id 删除对象（两者必须且只能传一个）
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param data body dto.DeleteFileReq true "删除参数"
+// @Success 200 {object} response.Response "成功返回（code=0）"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/delete [post]
+func (h *FileHandler) DeleteFileByID(c *gin.Context) {
+	var req dto.DeleteFileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	if (req.FileID == 0 && req.FolderID == 0) || (req.FileID > 0 && req.FolderID > 0) {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	if err := h.FileService.DeleteByIDs(userID, req.FileID, req.FolderID); err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		return
+	}
+	response.Success(c, nil)
 }
 
 // CreatePickUpCode godoc

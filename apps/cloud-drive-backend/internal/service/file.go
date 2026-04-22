@@ -29,6 +29,96 @@ var (
 	ErrPickupTargetNotFound = errors.New("pickup target not found")
 	ErrPickupEmptyFolder    = errors.New("empty folder")
 	ErrPublicShareNotFound  = errors.New("public share not found")
+	ErrInvalidFileName      = errors.New("invalid file name")
+	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+)
+
+var reservedNames = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true,
+	"COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,
+	"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+}
+
+func sanitizeFileName(name string) (string, error) {
+	if name == "" {
+		return "", ErrInvalidFileName
+	}
+	name = filepath.Base(name)
+	name = strings.ReplaceAll(name, "\x00", "")
+	var cleaned strings.Builder
+	for _, r := range name {
+		if r >= 32 && r != 127 {
+			cleaned.WriteRune(r)
+		}
+	}
+	name = cleaned.String()
+	if name == "" || name == "." || name == ".." {
+		return "", ErrInvalidFileName
+	}
+	upperName := strings.ToUpper(name)
+	if reservedNames[upperName] {
+		return "", ErrInvalidFileName
+	}
+	if ext := filepath.Ext(upperName); ext != "" {
+		baseName := strings.TrimSuffix(upperName, ext)
+		if reservedNames[baseName] {
+			return "", ErrInvalidFileName
+		}
+	}
+	dangerousChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	for _, char := range dangerousChars {
+		if strings.Contains(name, char) {
+			return "", ErrInvalidFileName
+		}
+	}
+	return name, nil
+}
+
+func sanitizeStorageFileExt(name string) string {
+	ext := filepath.Ext(name)
+	if ext == "" {
+		return ""
+	}
+	var cleaned strings.Builder
+	for _, r := range ext {
+		if r >= 32 && r != 127 {
+			cleaned.WriteRune(r)
+		}
+	}
+	ext = cleaned.String()
+	if ext == "." {
+		return ""
+	}
+	dangerousChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	for _, char := range dangerousChars {
+		if strings.Contains(ext, char) {
+			return ""
+		}
+	}
+	return ext
+}
+
+func validateZipEntryPath(entryPath string) error {
+	cleanPath := path.Clean(entryPath)
+	if cleanPath == "." || cleanPath == "" {
+		return errors.New("invalid zip entry path: empty path")
+	}
+	if strings.HasPrefix(cleanPath, "/") {
+		return errors.New("invalid zip entry path: absolute path not allowed")
+	}
+	for _, segment := range strings.Split(cleanPath, "/") {
+		if segment == ".." {
+			return errors.New("invalid zip entry path: contains path traversal")
+		}
+	}
+	return nil
+}
+
+const (
+	defaultStorageLimitBytes    uint64 = 1024 * 1024 * 1024
+	dashboardRecentActivitySize int    = 8
 )
 
 type FileServiceOptions struct {
@@ -40,9 +130,13 @@ type FileService interface {
 	InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
 	UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader) error
 	MergeUploadedChunks(userID uint, taskID uint) error
+	GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
 	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
 	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
+	RenameByIDs(userID uint, fileID, folderID uint, name string) error
+	MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
+	DeleteByIDs(userID uint, fileID, folderID uint) error
 	CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
 	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
 	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
@@ -51,6 +145,7 @@ type FileService interface {
 	DeletePublicShareLink(fileID uint, userID uint) error
 	OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
 	PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
 	DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
 
@@ -65,6 +160,20 @@ type PickUpDownloadTarget struct {
 	FilePath     string
 	FolderID     uint
 	DownloadName string
+}
+
+func (s *fileService) ensureStorageQuota(userID uint, additionalSize uint64) error {
+	if additionalSize == 0 {
+		return nil
+	}
+	storageUsed, err := s.FileRepository.GetStorageUsedByUserID(userID)
+	if err != nil {
+		return err
+	}
+	if storageUsed+additionalSize > defaultStorageLimitBytes {
+		return ErrStorageQuotaExceeded
+	}
+	return nil
 }
 
 func NewFileService(fileRepository *repository.FileRepository, options FileServiceOptions) FileService {
@@ -130,6 +239,9 @@ func (s *fileService) createInstantCompleteTask(req *model.UploadTask) (*model.U
 		return nil, err
 	}
 	if !exists {
+		if err := s.ensureStorageQuota(req.UserID, req.FileSize); err != nil {
+			return nil, err
+		}
 		fileModel := &model.FileModel{
 			UserID:   req.UserID,
 			FolderID: req.FolderID,
@@ -151,6 +263,7 @@ func (s *fileService) createInstantCompleteTask(req *model.UploadTask) (*model.U
 }
 
 func (s *fileService) createInstantTransferTask(req *model.UploadTask, existingTask *model.UploadTask) (*model.UploadTask, error) {
+	_ = existingTask
 	task := &model.UploadTask{
 		FileHash:       req.FileHash,
 		FileName:       req.FileName,
@@ -168,6 +281,9 @@ func (s *fileService) createInstantTransferTask(req *model.UploadTask, existingT
 		task.UploadedChunks = append(task.UploadedChunks, i)
 	}
 
+	if err := s.ensureStorageQuota(req.UserID, req.FileSize); err != nil {
+		return nil, err
+	}
 	if err := s.FileRepository.CreateUploadTask(task); err != nil {
 		return nil, err
 	}
@@ -249,11 +365,16 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	if len(task.FileHash) < 4 {
 		return errors.New("invalid file hash")
 	}
+
+	if err := s.ensureStorageQuota(userID, task.FileSize); err != nil {
+		return err
+	}
+
 	dirPath := s.FileStoragePath + "/" + task.FileHash[0:2] + "/" + task.FileHash[2:4]
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return err
 	}
-	filePath := dirPath + "/" + task.FileHash + filepath.Ext(task.FileName)
+	filePath := dirPath + "/" + task.FileHash + sanitizeStorageFileExt(task.FileName)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -300,6 +421,62 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	return nil
 }
 
+func (s *fileService) GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error) {
+	if storageLimit == 0 {
+		storageLimit = defaultStorageLimitBytes
+	}
+
+	storageUsed, err := s.FileRepository.GetStorageUsedByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := s.FileRepository.GetFileStatsByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	statMap := make(map[string]dto.DashboardFileStatItem, len(stats))
+	for _, item := range stats {
+		statMap[item.Type] = item
+	}
+	orderedTypes := []string{"image", "video", "audio", "document", "other"}
+	fileStats := make([]dto.DashboardFileStatItem, 0, len(orderedTypes))
+	for _, fileType := range orderedTypes {
+		stat, ok := statMap[fileType]
+		if !ok {
+			stat = dto.DashboardFileStatItem{
+				Type:  fileType,
+				Count: 0,
+				Size:  0,
+			}
+		}
+		fileStats = append(fileStats, stat)
+	}
+
+	recentActivities, err := s.FileRepository.GetRecentActivitiesByUserID(userID, dashboardRecentActivitySize)
+	if err != nil {
+		return nil, err
+	}
+
+	usedPercent := int(storageUsed * 100 / storageLimit)
+	if usedPercent > 100 {
+		usedPercent = 100
+	}
+	storageLeft := uint64(0)
+	if storageLimit > storageUsed {
+		storageLeft = storageLimit - storageUsed
+	}
+
+	return &dto.DashboardOverviewResp{
+		StorageUsed:        storageUsed,
+		StorageTotal:       storageLimit,
+		StorageLeft:        storageLeft,
+		StorageUsedPercent: usedPercent,
+		FileStats:          fileStats,
+		RecentActivities:   recentActivities,
+	}, nil
+}
+
 func (s *fileService) GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error) {
 	list, err := s.FileRepository.GetListByFolderIDAndUserID(folderID, userID, page, pageSize)
 	if err != nil {
@@ -317,8 +494,112 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 }
 
 func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
-	id, err := s.FileRepository.MakeDirectory(folderID, name, userID)
+	cleanedName, err := sanitizeFileName(name)
+	if err != nil {
+		return 0, err
+	}
+	id, err := s.FileRepository.MakeDirectory(folderID, cleanedName, userID)
 	return id, err
+}
+
+func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name string) error {
+	cleanedName, err := sanitizeFileName(name)
+	if err != nil {
+		return err
+	}
+	if fileID > 0 && folderID > 0 {
+		return errors.New("invalid rename target")
+	}
+	if fileID == 0 && folderID == 0 {
+		return errors.New("missing rename target")
+	}
+	if fileID > 0 {
+		return s.FileRepository.RenameFileByIDAndUserID(fileID, userID, cleanedName)
+	}
+	return s.FileRepository.RenameFolderByIDAndUserID(folderID, userID, cleanedName)
+}
+
+func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error {
+	if fileID > 0 && folderID > 0 {
+		return errors.New("invalid move target")
+	}
+	if fileID == 0 && folderID == 0 {
+		return errors.New("missing move target")
+	}
+
+	if targetFolderID > 0 {
+		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(targetFolderID, userID); err != nil {
+			return err
+		}
+	}
+
+	if fileID > 0 {
+		return s.FileRepository.MoveFileByIDAndUserID(fileID, userID, targetFolderID)
+	}
+
+	sourceFolder, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
+	if err != nil {
+		return err
+	}
+	if sourceFolder.ID == targetFolderID {
+		return errors.New("cannot move folder into itself")
+	}
+
+	// 防止把文件夹移动到自己的子孙目录中，避免形成环。
+	current := targetFolderID
+	for current != 0 {
+		if current == sourceFolder.ID {
+			return errors.New("cannot move folder into child folder")
+		}
+		parent, err := s.FileRepository.GetFolderByFolderIDAndUserID(current, userID)
+		if err != nil {
+			return err
+		}
+		current = parent.ParentID
+	}
+
+	return s.FileRepository.MoveFolderByIDAndUserID(folderID, userID, targetFolderID)
+}
+
+func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
+	if fileID > 0 && folderID > 0 {
+		return errors.New("invalid delete target")
+	}
+	if fileID == 0 && folderID == 0 {
+		return errors.New("missing delete target")
+	}
+
+	if fileID > 0 {
+		return s.FileRepository.DeleteFileByIDAndUserID(fileID, userID)
+	}
+
+	return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+		txRepo := &repository.FileRepository{DB: tx}
+
+		rootFolder, err := txRepo.GetFolderByFolderIDAndUserID(folderID, userID)
+		if err != nil {
+			return err
+		}
+		folderIDs := []uint{rootFolder.ID}
+		queue := []uint{rootFolder.ID}
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			children, err := txRepo.GetDirectChildFoldersByParentAndUserID(current, userID)
+			if err != nil {
+				return err
+			}
+			for _, child := range children {
+				folderIDs = append(folderIDs, child.ID)
+				queue = append(queue, child.ID)
+			}
+		}
+
+		if err := txRepo.DeleteFilesByFolderIDsAndUserID(folderIDs, userID); err != nil {
+			return err
+		}
+		return txRepo.DeleteFoldersByIDsAndUserID(folderIDs, userID)
+	})
 }
 
 func (s *fileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error) {
@@ -477,6 +758,43 @@ func (s *fileService) PreviewFileByID(fileID uint, userID uint, writer io.Writer
 	return s.StreamSingleFile(filePath, writer)
 }
 
+func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
+	if fileID > 0 && folderID > 0 {
+		return errors.New("invalid download target")
+	}
+	if fileID == 0 && folderID == 0 {
+		return errors.New("missing download target")
+	}
+
+	if fileID > 0 {
+		fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+		if err != nil {
+			return err
+		}
+		filePath, err := s.BuildFileAbsolutePath(fileModel)
+		if err != nil {
+			return err
+		}
+		contentType := mime.TypeByExtension(filepath.Ext(fileModel.Name))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		if setMeta != nil {
+			setMeta(fileModel.Name, contentType)
+		}
+		return s.StreamSingleFile(filePath, writer)
+	}
+
+	folderModel, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
+	if err != nil {
+		return err
+	}
+	if setMeta != nil {
+		setMeta(folderModel.Name+".zip", "application/zip")
+	}
+	return s.StreamFolderAsZip(folderModel.ID, writer)
+}
+
 func generatePublicShareToken() (string, error) {
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {
@@ -583,7 +901,8 @@ func (s *fileService) BuildFileAbsolutePath(fileModel *model.FileModel) (string,
 	if len(fileModel.FileHash) < 4 {
 		return "", errors.New("invalid file hash")
 	}
-	filePath := s.FileStoragePath + "/" + fileModel.FileHash[0:2] + "/" + fileModel.FileHash[2:4] + "/" + fileModel.FileHash + filepath.Ext(fileModel.Name)
+	ext := sanitizeStorageFileExt(fileModel.Name)
+	filePath := s.FileStoragePath + "/" + fileModel.FileHash[0:2] + "/" + fileModel.FileHash[2:4] + "/" + fileModel.FileHash + ext
 	if _, err := os.Stat(filePath); err != nil {
 		return "", err
 	}
@@ -606,7 +925,14 @@ func (s *fileService) StreamFolderAsZip(folderID uint, writer io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := s.writeFolderToZip(zipWriter, folderID, rootFolder.Name); err != nil {
+	rootFolderName, err := sanitizeFileName(rootFolder.Name)
+	if err != nil {
+		return err
+	}
+	if err := validateZipEntryPath(rootFolderName); err != nil {
+		return err
+	}
+	if err := s.writeFolderToZip(zipWriter, folderID, rootFolderName); err != nil {
 		_ = zipWriter.Close()
 		return err
 	}
@@ -631,7 +957,16 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 		if err != nil {
 			return err
 		}
-		entryPath := path.Join(zipPrefix, fileModel.Name)
+		cleanedName, err := sanitizeFileName(fileModel.Name)
+		if err != nil {
+			src.Close()
+			return err
+		}
+		entryPath := path.Join(zipPrefix, cleanedName)
+		if err := validateZipEntryPath(entryPath); err != nil {
+			src.Close()
+			return err
+		}
 		info, statErr := src.Stat()
 		if statErr != nil {
 			src.Close()
@@ -657,10 +992,17 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 	}
 
 	for _, folder := range folders {
-		nextPrefix := path.Join(zipPrefix, folder.Name)
+		cleanedFolderName, err := sanitizeFileName(folder.Name)
+		if err != nil {
+			return err
+		}
+		nextPrefix := path.Join(zipPrefix, cleanedFolderName)
+		if err := validateZipEntryPath(nextPrefix); err != nil {
+			return err
+		}
 		if err := s.writeFolderToZip(zipWriter, folder.ID, nextPrefix); err != nil {
 			if errors.Is(err, ErrPickupEmptyFolder) {
-				_, _ = zipWriter.Create(path.Join(nextPrefix, "/"))
+				_, _ = zipWriter.Create(nextPrefix + "/")
 				continue
 			}
 			return err
