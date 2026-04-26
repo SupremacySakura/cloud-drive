@@ -6,6 +6,7 @@ import type { FileListItem } from '../services/types/file'
 import { formatBytes, formatTime, iconForListItem, typeLabelForListItem, detectFileType, iconForFile, sanitizeFileName } from '../utils/file'
 import { useUserStore } from '../stores/user'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import { createId } from '../utils/hash'
 import type { UploadFileConfig } from '../types/file'
 
@@ -98,6 +99,8 @@ const publicShareLink = ref('')
 const shareError = ref<string | null>(null)
 const isCreatingShareLink = ref(false)
 const isDeletingShareLink = ref(false)
+const isDeleteConfirmModalOpen = ref(false)
+const deleteConfirmTarget = ref<DisplayItem | null>(null)
 
 // Toast 提示状态
 const toastMessage = ref('')
@@ -163,6 +166,7 @@ const sortedFiles = computed(() => {
 })
 
 const currentFolderName = computed(() => breadcrumbs.value[breadcrumbs.value.length - 1]?.name || 'root')
+const hasParentFolder = computed(() => breadcrumbs.value.length > 1)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)))
 const startIndex = computed(() => (totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1))
@@ -223,6 +227,11 @@ const goToBreadcrumb = async (index: number) => {
     currentFolderId.value = next.id
     page.value = 1
     await fetchFolder(next.id)
+}
+
+const goToParentFolder = async () => {
+    if (!hasParentFolder.value) return
+    await goToBreadcrumb(breadcrumbs.value.length - 2)
 }
 
 const onRowClick = async (file: FileListItem) => {
@@ -659,12 +668,21 @@ const handleMove = async () => {
 
 const handleDeleteFromMenu = async () => {
     if (!menuTargetFile.value) return
-    const target = menuTargetFile.value
-    const targetKey = `${target.type}-${target.id}`
-    const confirmed = window.confirm(`确认删除${target.type === 'folder' ? '文件夹' : '文件'}「${target.name}」吗？此操作不可撤销。`)
-    if (!confirmed) return
-
+    deleteConfirmTarget.value = menuTargetFile.value
+    isDeleteConfirmModalOpen.value = true
     closeOverlays()
+}
+
+const closeDeleteConfirmModal = (force = false) => {
+    if (deletingMenuTargetId.value && !force) return
+    isDeleteConfirmModalOpen.value = false
+    deleteConfirmTarget.value = null
+}
+
+const confirmDeleteFromModal = async () => {
+    if (!deleteConfirmTarget.value) return
+    const target = deleteConfirmTarget.value
+    const targetKey = `${target.type}-${target.id}`
     deletingMenuTargetId.value = targetKey
     try {
         await deleteFile({
@@ -672,6 +690,7 @@ const handleDeleteFromMenu = async () => {
             folder_id: target.type === 'folder' ? target.id : 0,
         })
         displayToast('删除成功', 'success')
+        closeDeleteConfirmModal(true)
         await fetchFolder(currentFolderId.value)
     } catch (e: any) {
         const msg = e?.message || '删除失败'
@@ -1053,7 +1072,7 @@ onBeforeUnmount(() => {
                                         {{ bc.name }}
                                     </button>
                                     <span v-else class="text-slate-900 dark:text-slate-100 font-medium">{{ bc.name
-                                    }}</span>
+                                        }}</span>
                                 </template>
                             </nav>
                             <h2 class="text-2xl font-bold text-slate-900 dark:text-slate-100">{{ currentFolderName }}
@@ -1214,6 +1233,28 @@ onBeforeUnmount(() => {
                             </thead>
 
                             <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr v-if="hasParentFolder"
+                                    class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors cursor-pointer"
+                                    @click="goToParentFolder">
+                                    <td class="py-4 px-6"></td>
+                                    <td class="py-4 px-4">
+                                        <div class="flex items-center gap-3">
+                                            <div
+                                                class="w-10 h-10 rounded flex items-center justify-center bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                                <Icon icon="material-symbols:folder" />
+                                            </div>
+                                            <span
+                                                class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs">
+                                                ..
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">文件夹</td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">-</td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 hidden lg:table-cell">-</td>
+                                    <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">返回上一级目录</td>
+                                    <td class="py-4 px-6"></td>
+                                </tr>
                                 <tr v-for="file in sortedFiles" :key="file.id"
                                     class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
                                     :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
@@ -1235,7 +1276,7 @@ onBeforeUnmount(() => {
                                         </div>
                                     </td>
                                     <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">{{ file.typeLabel
-                                    }}
+                                        }}
                                     </td>
                                     <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">
                                         {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}
@@ -1251,7 +1292,7 @@ onBeforeUnmount(() => {
                                     </td>
                                     <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">{{
                                         file.lastModifiedText
-                                    }}
+                                        }}
                                     </td>
                                     <td class="py-4 px-6 text-right" @click="onStopPropagation">
                                         <button
@@ -1303,6 +1344,25 @@ onBeforeUnmount(() => {
 
                     <div v-else>
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div v-if="hasParentFolder"
+                                class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors cursor-pointer"
+                                @click="goToParentFolder">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div
+                                            class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                            <Icon class="text-[22px]" icon="material-symbols:folder" />
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div
+                                                class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                                ..
+                                            </div>
+                                            <div class="text-xs text-slate-500">返回上一级目录</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <div v-for="file in sortedFiles" :key="file.id"
                                 class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
                                 :class="file.type === 'folder' ? 'cursor-pointer' : ''" @click="onRowClick(file)">
@@ -1496,7 +1556,7 @@ onBeforeUnmount(() => {
                                     <span class="flex items-center gap-2 min-w-0">
                                         <Icon icon="material-symbols:folder" class="text-primary shrink-0" />
                                         <span class="truncate text-sm text-slate-700 dark:text-slate-300">{{ folder.name
-                                        }}</span>
+                                            }}</span>
                                     </span>
                                     <Icon icon="material-symbols:chevron-right" class="text-slate-400" />
                                 </button>
@@ -1527,6 +1587,16 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
                 </div>
+
+                <ConfirmDialog v-model="isDeleteConfirmModalOpen" title="确认删除"
+                    :message="`将删除${deleteConfirmTarget?.type === 'folder' ? '文件夹' : '文件'}：「${deleteConfirmTarget?.name || '-'}」。此操作不可撤销。`"
+                    confirm-text="确认删除" cancel-text="取消" :loading="!!deletingMenuTargetId" :danger="true"
+                    @cancel="closeDeleteConfirmModal" @confirm="confirmDeleteFromModal">
+                    <template #confirm-icon>
+                        <Icon v-if="!!deletingMenuTargetId" icon="material-symbols:progress-activity"
+                            class="animate-spin" />
+                    </template>
+                </ConfirmDialog>
 
                 <!-- 文件预览模态框 -->
                 <div v-if="isPreviewModalOpen"

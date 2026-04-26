@@ -63,6 +63,10 @@ type GetPickUpCodeListByUserIDAndPageReq struct {
 	PageSize int `form:"page_size" binding:"min=1,max=100"`
 }
 
+type DeletePickUpCodeReq struct {
+	ID uint `form:"id" binding:"required,min=1"`
+}
+
 type DownloadByPickUpCodeReq struct {
 	Code string `form:"code" binding:"required"`
 }

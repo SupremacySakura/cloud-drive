@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
-import { getPickupCodeList, getPickupCodeCount } from '../services/apis/file'
+import { getPickupCodeList, getPickupCodeCount, deletePickupCode } from '../services/apis/file'
 import type { PickupCodeItem, PickupCodeType } from '../services/types/file'
 import CreatePickupCodeModal from '../components/bussiness/CreatePickupCodeModal.vue'
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import { sanitizeFileName } from '../utils/file'
 
 const pickupList = ref<PickupCodeItem[]>([])
@@ -12,8 +13,18 @@ const loading = ref(false)
 const showCreateModal = ref(false)
 const showDetailModal = ref(false)
 const selectedItem = ref<PickupCodeItem | null>(null)
-const copySuccess = ref<string | null>(null)
 const router = useRouter()
+const openMenuId = ref<string | null>(null)
+const menuTargetItem = ref<PickupCodeItem | null>(null)
+const menuPosition = ref<{ top: number; left: number } | null>(null)
+const deletingCodeId = ref<number | null>(null)
+const showDeleteConfirm = ref(false)
+const deleteTargetItem = ref<PickupCodeItem | null>(null)
+
+const toastMessage = ref('')
+const toastType = ref<'success' | 'error' | 'info'>('info')
+const showToast = ref(false)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -108,15 +119,66 @@ const handleCreateSuccess = () => {
     fetchData()
 }
 
+const displayToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (toastTimer) {
+        clearTimeout(toastTimer)
+    }
+    toastMessage.value = message
+    toastType.value = type
+    showToast.value = true
+    toastTimer = setTimeout(() => {
+        showToast.value = false
+    }, 3000)
+}
+
+const closeOverlays = () => {
+    openMenuId.value = null
+    menuTargetItem.value = null
+    menuPosition.value = null
+}
+
+const onGlobalClick = () => closeOverlays()
+
+const onStopPropagation = (e: MouseEvent) => e.stopPropagation()
+
+const openPickupMenu = (item: PickupCodeItem, event: MouseEvent) => {
+    const menuId = String(item.id)
+    if (openMenuId.value === menuId) {
+        closeOverlays()
+        return
+    }
+    const button = event.currentTarget as HTMLButtonElement
+    const rect = button.getBoundingClientRect()
+    const menuHeight = 180
+    const menuWidth = 192
+    const padding = 8
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+
+    let top = rect.bottom + padding
+    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+        top = rect.top - menuHeight - padding
+    }
+
+    let left = rect.right - menuWidth
+    if (left < padding) left = padding
+
+    menuPosition.value = { top, left }
+    openMenuId.value = menuId
+    menuTargetItem.value = item
+}
+
 const handleCopyCode = async (code: string) => {
+    if (!code) {
+        displayToast('复制失败，请稍后重试', 'error')
+        return
+    }
     try {
         await navigator.clipboard.writeText(code)
-        copySuccess.value = code
-        setTimeout(() => {
-            copySuccess.value = null
-        }, 2000)
+        displayToast(`取件码 ${code} 已复制`, 'success')
+        closeOverlays()
     } catch {
-        console.error('Failed to copy code')
+        displayToast('复制失败，请手动复制', 'error')
     }
 }
 
@@ -128,13 +190,57 @@ const handleViewDetail = (item: PickupCodeItem) => {
     showDetailModal.value = true
 }
 
+const handleViewDetailFromMenu = () => {
+    if (!menuTargetItem.value) return
+    handleViewDetail(menuTargetItem.value)
+    closeOverlays()
+}
+
+const handleDeleteFromMenu = async () => {
+    if (!menuTargetItem.value) return
+    deleteTargetItem.value = menuTargetItem.value
+    showDeleteConfirm.value = true
+    closeOverlays()
+}
+
+const closeDeleteConfirm = () => {
+    if (deletingCodeId.value !== null) return
+    showDeleteConfirm.value = false
+    deleteTargetItem.value = null
+}
+
+const confirmDeletePickupCode = async () => {
+    if (!deleteTargetItem.value) return
+    const target = deleteTargetItem.value
+    deletingCodeId.value = target.id
+    try {
+        await deletePickupCode(target.id)
+        displayToast('取件码删除成功', 'success')
+        showDeleteConfirm.value = false
+        deleteTargetItem.value = null
+        await fetchData()
+    } catch (e: any) {
+        displayToast(e?.message || '删除取件码失败', 'error')
+    } finally {
+        deletingCodeId.value = null
+    }
+}
+
 const handleCloseDetail = () => {
     showDetailModal.value = false
     selectedItem.value = null
 }
 
 onMounted(() => {
+    document.addEventListener('click', onGlobalClick)
     fetchData()
+})
+
+onBeforeUnmount(() => {
+    document.removeEventListener('click', onGlobalClick)
+    if (toastTimer) {
+        clearTimeout(toastTimer)
+    }
 })
 </script>
 
@@ -300,7 +406,7 @@ onMounted(() => {
                                         </div>
                                     </td>
                                     <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">{{ item.download
-                                    }} /
+                                        }} /
                                         {{ item.max_download }}</td>
                                     <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap hidden lg:table-cell">
                                         {{
@@ -316,29 +422,12 @@ onMounted(() => {
                                             {{ statusLabel(item.status) }}
                                         </span>
                                     </td>
-                                    <td class="py-4 px-6 text-right">
-                                        <div
-                                            class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button class="p-2 rounded-lg transition-all"
-                                                :class="copySuccess === item.code ? 'text-primary bg-primary/10' : 'text-slate-400 hover:text-primary hover:bg-primary/10'"
-                                                :title="copySuccess === item.code ? 'Copied!' : 'Copy Code'"
-                                                type="button" @click="handleCopyCode(item.code)">
-                                                <Icon icon="material-symbols:content-copy-outline-rounded"
-                                                    class="text-xl" />
-                                            </button>
-                                            <button
-                                                class="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
-                                                title="View Details" type="button" @click="handleViewDetail(item)">
-                                                <Icon icon="material-symbols:visibility-outline-rounded"
-                                                    class="text-xl" />
-                                            </button>
-                                            <button
-                                                class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-50 cursor-not-allowed"
-                                                title="Delete (coming soon)" type="button" disabled>
-                                                <Icon icon="material-symbols:delete-outline-rounded"
-                                                    class="text-xl text-red-500/80" />
-                                            </button>
-                                        </div>
+                                    <td class="py-4 px-6 text-right" @click="onStopPropagation">
+                                        <button
+                                            class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
+                                            type="button" @click="(e) => openPickupMenu(item, e)">
+                                            <Icon icon="material-symbols:more-vert" />
+                                        </button>
                                     </td>
                                 </tr>
                             </tbody>
@@ -448,11 +537,70 @@ onMounted(() => {
                         </button>
                         <button type="button"
                             class="px-6 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors"
-                            @click="handleCopyCode(selectedItem.code); handleCloseDetail()">
+                            @click="handleCopyCode(selectedItem.code)">
                             Copy Code
                         </button>
                     </div>
                 </div>
+            </div>
+        </Teleport>
+
+        <ConfirmDialog v-model="showDeleteConfirm" title="确认删除取件码"
+            :message="`将删除取件码「${deleteTargetItem?.code || '-'}」，此操作不可撤销。`" confirm-text="确认删除" cancel-text="取消"
+            :loading="deletingCodeId !== null" :danger="true" @cancel="closeDeleteConfirm"
+            @confirm="confirmDeletePickupCode">
+            <template #confirm-icon>
+                <Icon v-if="deletingCodeId !== null" icon="material-symbols:progress-activity" class="animate-spin" />
+            </template>
+        </ConfirmDialog>
+
+        <transition enter-active-class="transform ease-out duration-300 transition"
+            enter-from-class="translate-y-2 opacity-0" enter-to-class="translate-y-0 opacity-100"
+            leave-active-class="transition ease-in duration-200" leave-from-class="opacity-100"
+            leave-to-class="opacity-0">
+            <div v-if="showToast"
+                class="fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border" :class="{
+                    'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800': toastType === 'success',
+                    'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': toastType === 'error',
+                    'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800': toastType === 'info'
+                }">
+                <Icon v-if="toastType === 'success'" icon="material-symbols:check-circle"
+                    class="text-2xl text-green-500" />
+                <Icon v-else-if="toastType === 'error'" icon="material-symbols:error" class="text-2xl text-red-500" />
+                <Icon v-else icon="material-symbols:info" class="text-2xl text-blue-500" />
+                <span class="font-medium" :class="{
+                    'text-green-800 dark:text-green-200': toastType === 'success',
+                    'text-red-800 dark:text-red-200': toastType === 'error',
+                    'text-blue-800 dark:text-blue-200': toastType === 'info'
+                }">{{ toastMessage }}</span>
+            </div>
+        </transition>
+
+        <Teleport to="body">
+            <div v-if="openMenuId && menuPosition"
+                class="fixed w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2"
+                :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }" @click="onStopPropagation">
+                <button
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                    type="button" @click="handleCopyCode(menuTargetItem?.code || '')">
+                    <Icon class="text-sm" icon="material-symbols:content-copy" />
+                    复制取件码
+                </button>
+                <button
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                    type="button" @click="handleViewDetailFromMenu">
+                    <Icon class="text-sm" icon="material-symbols:visibility" />
+                    查看详情
+                </button>
+                <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                <button
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button" :disabled="deletingCodeId !== null" @click="handleDeleteFromMenu">
+                    <Icon class="text-sm"
+                        :icon="deletingCodeId !== null ? 'material-symbols:progress-activity' : 'material-symbols:delete'"
+                        :class="deletingCodeId !== null ? 'animate-spin' : ''" />
+                    删除
+                </button>
             </div>
         </Teleport>
     </div>

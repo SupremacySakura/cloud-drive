@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { computed, reactive, ref } from 'vue'
-import { uploadFile } from '../services/apis/file'
+import { getListByFolderIDAndUserID, uploadFile } from '../services/apis/file'
 import { detectFileType, formatBytes, iconForFile } from '../utils/file'
 import { createId } from '../utils/hash'
 import { useUserStore } from '../stores/user'
@@ -25,6 +25,16 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const items = ref<QueueItem[]>([])
 const processingCount = computed(() => items.value.filter((i) => ['pending', 'hashing', 'uploading', 'merging'].includes(i.status)).length)
 const clampPercent = (value: number) => Math.min(100, Math.max(0, Math.floor(value)))
+
+type BreadcrumbItem = { id: number; name: string }
+const selectedUploadFolderId = ref(0)
+const selectedUploadFolderPath = ref('root')
+const isFolderPickerOpen = ref(false)
+const isFolderPickerLoading = ref(false)
+const folderPickerCurrentFolderId = ref(0)
+const folderPickerBreadcrumbs = ref<BreadcrumbItem[]>([{ id: 0, name: 'root' }])
+const folderPickerFolders = ref<{ id: number; name: string }[]>([])
+const folderPickerErrorMessage = ref<string | null>(null)
 
 const removeItem = (id: string) => {
     items.value = items.value.filter((x) => x.id !== id)
@@ -50,6 +60,53 @@ const clearCompleted = () => {
 
 const openFileDialog = () => {
     fileInputRef.value?.click()
+}
+
+const loadFolderPickerFolders = async (folderId: number) => {
+    isFolderPickerLoading.value = true
+    folderPickerErrorMessage.value = null
+    try {
+        const list = await getListByFolderIDAndUserID(folderId, 1, 100)
+        folderPickerFolders.value = list
+            .filter((item) => item.type === 'folder')
+            .map((item) => ({ id: item.id, name: item.name }))
+    } catch (e: any) {
+        folderPickerFolders.value = []
+        folderPickerErrorMessage.value = e?.message || '加载目录失败'
+    } finally {
+        isFolderPickerLoading.value = false
+    }
+}
+
+const openFolderPicker = async () => {
+    isFolderPickerOpen.value = true
+    folderPickerCurrentFolderId.value = 0
+    folderPickerBreadcrumbs.value = [{ id: 0, name: 'root' }]
+    await loadFolderPickerFolders(0)
+}
+
+const closeFolderPicker = () => {
+    isFolderPickerOpen.value = false
+}
+
+const goToFolderPickerFolder = async (folder: { id: number; name: string }) => {
+    folderPickerCurrentFolderId.value = folder.id
+    folderPickerBreadcrumbs.value = [...folderPickerBreadcrumbs.value, { id: folder.id, name: folder.name }]
+    await loadFolderPickerFolders(folder.id)
+}
+
+const goToFolderPickerBreadcrumb = async (index: number) => {
+    const next = folderPickerBreadcrumbs.value[index]
+    if (!next) return
+    folderPickerCurrentFolderId.value = next.id
+    folderPickerBreadcrumbs.value = folderPickerBreadcrumbs.value.slice(0, index + 1)
+    await loadFolderPickerFolders(next.id)
+}
+
+const selectCurrentFolderForUpload = () => {
+    selectedUploadFolderId.value = folderPickerCurrentFolderId.value
+    selectedUploadFolderPath.value = folderPickerBreadcrumbs.value.map((item) => item.name).join(' / ')
+    closeFolderPicker()
 }
 
 const pushFiles = async (files: File[]) => {
@@ -103,7 +160,7 @@ const startUpload = async (item: QueueItem) => {
             item.file,
             {
                 file_type: fileType,
-                folder_id: 0,
+                folder_id: selectedUploadFolderId.value,
             },
             (progress) => {
                 if (item.canceled) return
@@ -147,6 +204,20 @@ const badgeClass = (item: QueueItem) => {
         <template v-else>
         <main class="flex-1 overflow-y-auto p-8 space-y-8">
             <section>
+                <div class="mb-4 flex items-center justify-between gap-3 rounded-xl border border-primary/15 bg-white/70 dark:bg-slate-900/60 px-4 py-3">
+                    <div class="min-w-0">
+                        <p class="text-xs text-slate-500 dark:text-slate-400">上传目录</p>
+                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {{ selectedUploadFolderPath }}
+                        </p>
+                    </div>
+                    <button
+                        class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-primary/30 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
+                        type="button" @click="openFolderPicker">
+                        <Icon icon="material-symbols:folder-open-outline" />
+                        选择目录
+                    </button>
+                </div>
                 <input ref="fileInputRef" type="file" class="hidden" multiple @change="onFileInputChange" />
                 <div class="w-full border-2 border-dashed border-primary/30 rounded-xl bg-primary/5 hover:bg-primary/[0.08] transition-all group flex flex-col items-center justify-center py-16 px-4 cursor-pointer"
                     :class="isDragging ? 'ring-2 ring-primary/40 bg-primary/[0.10]' : ''" @click="openFileDialog"
@@ -166,6 +237,83 @@ const badgeClass = (item: QueueItem) => {
                     </button>
                 </div>
             </section>
+
+            <div v-if="isFolderPickerOpen" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" @click="closeFolderPicker">
+                <div class="w-full max-w-2xl rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-xl" @click.stop>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100">选择上传目录</h3>
+                    <p class="mt-1 text-sm text-slate-500">默认上传到 root，可切换到任意已有文件夹。</p>
+
+                    <div class="mt-4 flex items-center justify-between gap-3">
+                        <nav class="flex items-center gap-2 overflow-x-auto text-xs text-slate-500">
+                            <template v-for="(bc, idx) in folderPickerBreadcrumbs" :key="`${bc.id}-${idx}`">
+                                <button
+                                    v-if="idx < folderPickerBreadcrumbs.length - 1"
+                                    class="whitespace-nowrap hover:text-primary"
+                                    type="button"
+                                    @click="goToFolderPickerBreadcrumb(idx)"
+                                >
+                                    {{ bc.name }}
+                                </button>
+                                <span v-else class="whitespace-nowrap font-semibold text-slate-900 dark:text-slate-100">
+                                    {{ bc.name }}
+                                </span>
+                                <Icon v-if="idx < folderPickerBreadcrumbs.length - 1" icon="material-symbols:chevron-right" class="text-xs" />
+                            </template>
+                        </nav>
+                        <button
+                            class="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
+                            type="button"
+                            @click="selectCurrentFolderForUpload"
+                        >
+                            选择当前目录
+                        </button>
+                    </div>
+
+                    <div class="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        <div class="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                            <div v-if="isFolderPickerLoading" class="p-4 text-sm text-slate-500">
+                                正在加载目录...
+                            </div>
+                            <div v-else-if="folderPickerErrorMessage" class="p-4 text-sm text-red-500">
+                                {{ folderPickerErrorMessage }}
+                            </div>
+                            <button
+                                v-for="folder in folderPickerFolders"
+                                :key="folder.id"
+                                class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900"
+                                type="button"
+                                @click="goToFolderPickerFolder(folder)"
+                            >
+                                <span class="flex min-w-0 items-center gap-2">
+                                    <Icon icon="material-symbols:folder" class="shrink-0 text-primary" />
+                                    <span class="truncate text-sm text-slate-700 dark:text-slate-300">{{ folder.name }}</span>
+                                </span>
+                                <Icon icon="material-symbols:chevron-right" class="text-slate-400" />
+                            </button>
+                            <div v-if="!isFolderPickerLoading && !folderPickerErrorMessage && folderPickerFolders.length === 0" class="p-4 text-sm text-slate-500">
+                                当前目录下没有子文件夹
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex justify-end gap-3">
+                        <button
+                            class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"
+                            type="button"
+                            @click="closeFolderPicker"
+                        >
+                            取消
+                        </button>
+                        <button
+                            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+                            type="button"
+                            @click="selectCurrentFolderForUpload"
+                        >
+                            确认
+                        </button>
+                    </div>
+                </div>
+            </div>
 
             <section class="space-y-4">
                 <div class="flex items-center justify-between">

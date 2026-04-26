@@ -52,6 +52,7 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.POST("/code", middleware.AuthMiddleware(), h.CreatePickUpCode)
 	r.GET("/code/list", middleware.AuthMiddleware(), h.GetPickUpCodeListByUserIDAndPage)
 	r.GET("/code/count", middleware.AuthMiddleware(), h.GetPickUpCodeListCountByUserID)
+	r.DELETE("/code", middleware.AuthMiddleware(), h.DeletePickUpCodeByID)
 	r.GET("/pickup/download", h.DownloadByPickUpCode)
 }
 
@@ -697,6 +698,24 @@ func (h *FileHandler) GetPickUpCodeListCountByUserID(c *gin.Context) {
 		return
 	}
 	response.Success(c, count)
+}
+
+func (h *FileHandler) DeletePickUpCodeByID(c *gin.Context) {
+	var req dto.DeletePickUpCodeReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	if err := h.FileService.DeletePickUpCodeByID(userID, req.ID); err != nil {
+		response.FailWithMsg(c, response.CodeNotFound, "取件码不存在或无权访问")
+		return
+	}
+	response.Success(c, nil)
 }
 
 func (h *FileHandler) DownloadByPickUpCode(c *gin.Context) {

@@ -140,6 +140,7 @@ type FileService interface {
 	CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
 	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
 	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
+	DeletePickUpCodeByID(userID uint, codeID uint) error
 	CreatePublicShareLink(fileID uint, userID uint) (string, error)
 	GetPublicShareLink(fileID uint, userID uint) (string, error)
 	DeletePublicShareLink(fileID uint, userID uint) error
@@ -651,6 +652,10 @@ func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error)
 		return 0, err
 	}
 	return count, nil
+}
+
+func (s *fileService) DeletePickUpCodeByID(userID uint, codeID uint) error {
+	return s.FileRepository.DeletePickUpCodeByIDAndUserID(codeID, userID)
 }
 
 func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, error) {

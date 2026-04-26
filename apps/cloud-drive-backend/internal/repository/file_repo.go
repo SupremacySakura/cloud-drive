@@ -383,6 +383,17 @@ func (r *FileRepository) GetPickUpCodeByCode(code string) (*model.PickUpCodeMode
 	return &pickupCode, nil
 }
 
+func (r *FileRepository) DeletePickUpCodeByIDAndUserID(codeID uint, userID uint) error {
+	result := r.DB.Where("id = ? AND user_id = ?", codeID, userID).Delete(&model.PickUpCodeModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *FileRepository) GetFileByID(fileID uint) (*model.FileModel, error) {
 	var file model.FileModel
 	if err := r.DB.Where("id = ?", fileID).First(&file).Error; err != nil {

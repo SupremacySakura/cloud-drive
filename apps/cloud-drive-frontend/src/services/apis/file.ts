@@ -151,6 +151,15 @@ export const getPickupCodeCount = async () => {
     return res.data.data ?? 0
 }
 
+export const deletePickupCode = async (id: number) => {
+    const res = await request.delete<ResponseData<null>>('/api/file/code', {
+        params: { id },
+    })
+    if (res.data.code !== 0) {
+        throw new Error(res.data.msg || '删除取件码失败')
+    }
+}
+
 const parseDownloadFileName = (contentDisposition?: string) => {
     if (!contentDisposition) return 'download'
     const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)

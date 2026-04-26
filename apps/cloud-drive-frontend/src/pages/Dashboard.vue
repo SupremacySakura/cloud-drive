@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { Icon } from '@iconify/vue'
 import { useUserStore } from '../stores/user'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
 import { getDashboardOverview } from '../services/apis/file'
@@ -41,11 +42,11 @@ const fileStats = ref<FileStatCard[]>([])
 const recentActivities = ref<RecentActivityCard[]>([])
 
 const fileTypeMeta: Record<string, { title: string; icon: string; colorClass: string }> = {
-    image: { title: '图片', icon: 'image', colorClass: 'bg-blue-100 text-blue-600' },
-    video: { title: '视频', icon: 'videocam', colorClass: 'bg-red-100 text-red-600' },
-    audio: { title: '音频', icon: 'music_note', colorClass: 'bg-purple-100 text-purple-600' },
-    document: { title: '文档', icon: 'description', colorClass: 'bg-orange-100 text-orange-600' },
-    other: { title: '其他', icon: 'insert_drive_file', colorClass: 'bg-slate-100 text-slate-600' },
+    image: { title: '图片', icon: 'material-symbols:image-outline-rounded', colorClass: 'bg-blue-100 text-blue-600' },
+    video: { title: '视频', icon: 'material-symbols:videocam-outline-rounded', colorClass: 'bg-red-100 text-red-600' },
+    audio: { title: '音频', icon: 'material-symbols:music-note-rounded', colorClass: 'bg-purple-100 text-purple-600' },
+    document: { title: '文档', icon: 'material-symbols:description-outline-rounded', colorClass: 'bg-orange-100 text-orange-600' },
+    other: { title: '其他', icon: 'material-symbols:insert-drive-file-outline-rounded', colorClass: 'bg-slate-100 text-slate-600' },
 }
 
 const dashboardTypeOrder = ['image', 'video', 'audio', 'document', 'other']
@@ -67,11 +68,11 @@ const mapFileStats = (stats: DashboardFileStatItem[]): FileStatCard[] => {
 }
 
 const mapActivityIcon = (fileType: string) => {
-    if (fileType === 'image') return 'image'
-    if (fileType === 'video') return 'videocam'
-    if (fileType === 'audio') return 'music_note'
-    if (fileType === 'document') return 'description'
-    return 'insert_drive_file'
+    if (fileType === 'image') return 'material-symbols:image-outline-rounded'
+    if (fileType === 'video') return 'material-symbols:videocam-outline-rounded'
+    if (fileType === 'audio') return 'material-symbols:music-note-rounded'
+    if (fileType === 'document') return 'material-symbols:description-outline-rounded'
+    return 'material-symbols:insert-drive-file-outline-rounded'
 }
 
 const formatRelativeTime = (value: string) => {
@@ -164,7 +165,7 @@ watch(
                     class="lg:col-span-4 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
                     <div class="flex justify-between items-start mb-6">
                         <h3 class="font-bold">存储使用情况</h3>
-                        <span class="material-symbols-outlined text-slate-400">info</span>
+                        <Icon icon="material-symbols:info-outline-rounded" class="text-2xl text-slate-400" />
                     </div>
 
                     <div class="flex items-center justify-center py-6">
@@ -196,7 +197,7 @@ watch(
                     <div v-for="stat in fileStats" :key="stat.type"
                         class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:border-primary/30 transition-colors">
                         <div :class="['w-10 h-10 rounded-lg flex items-center justify-center mb-4', stat.colorClass]">
-                            <span class="material-symbols-outlined">{{ stat.icon }}</span>
+                            <Icon :icon="stat.icon" class="text-2xl" />
                         </div>
                         <div>
                             <h4 class="text-sm font-semibold text-slate-500">{{ stat.title }}</h4>
@@ -224,7 +225,7 @@ watch(
                         <div class="flex items-center gap-4">
                             <div
                                 class="w-10 h-10 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                                <span class="material-symbols-outlined text-slate-500">{{ activity.icon }}</span>
+                                <Icon :icon="activity.icon" class="text-2xl text-slate-500" />
                             </div>
                             <div>
                                 <p class="text-sm font-semibold">{{ activity.name }}</p>
@@ -243,10 +244,3 @@ watch(
         </main>
     </div>
 </template>
-
-<style scoped>
-.material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-    font-size: 24px;
-}
-</style>
