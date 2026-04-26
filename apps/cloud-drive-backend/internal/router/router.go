@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,12 @@ func getEnvOrDefault(key, defaultValue string) string {
 func SetUpRouter() *gin.Engine {
 	r := gin.Default()
 	RegisterUserRouter(r)
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	r.HEAD("/healthz", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
 
 	// 从环境变量读取存储路径，默认为项目目录下的 data 文件夹
 	chunkPath := getEnvOrDefault("CHUNK_STORAGE_PATH", "./data")

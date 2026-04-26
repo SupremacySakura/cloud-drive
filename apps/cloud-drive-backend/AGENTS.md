@@ -1,7 +1,7 @@
 # AGENTS.md - Backend
 
 **App**: cloud-drive-backend  
-**Stack**: Go 1.25 + Gin + GORM + MongoDB  
+**Stack**: Go 1.25 + Gin + GORM + MYSQL
 **Location**: `/Users/shi/study/frontend/projects/cloud-drive/apps/cloud-drive-backend`
 
 ## Entry Point

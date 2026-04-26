@@ -54,7 +54,7 @@ cloud-drive/
 
 ### Backend Stack  
 - Go 1.25 + Gin framework
-- GORM (MySQL) + MongoDB driver
+- GORM (MySQL)
 - JWT auth (golang-jwt/jwt/v5)
 - Swaggo for OpenAPI docs (`/swagger/index.html`)
 - Hardcoded paths: reads/writes to `/Users/shi/study/frontend/projects/cloud-drive/data`

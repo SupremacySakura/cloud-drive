@@ -1,0 +1,87 @@
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    container_name: ${MYSQL_CONTAINER_NAME:-cloud-drive-mysql}
+    profiles: ["infra", "backend", "frontend", "full"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cloud-drive}
+      MYSQL_INITDB_SKIP_TZINFO: "${MYSQL_INITDB_SKIP_TZINFO:-1}"
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - ${MYSQL_DATA_DIR:-./data/mysql}:/var/lib/mysql
+      - ${MYSQL_INIT_DIR:-./ops/mysql/init}:/docker-entrypoint-initdb.d:ro
+      - ${MYSQL_IMPORT_DIR:-./ops/mysql/import}:/opt/mysql-import
+    networks:
+      - cloud-drive-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./apps/cloud-drive-backend
+      dockerfile: Dockerfile
+    container_name: ${BACKEND_CONTAINER_NAME:-cloud-drive-backend}
+    profiles: ["backend", "frontend", "full"]
+    environment:
+      PORT: ${BACKEND_CONTAINER_PORT:-9000}
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-123456123456}
+      DB_NAME: ${DB_NAME:-cloud-drive}
+      JWT_SECRET: ${JWT_SECRET:-your_secret_key}
+      CHUNK_STORAGE_PATH: ${CHUNK_STORAGE_PATH:-/app/data}
+      FILE_STORAGE_PATH: ${FILE_STORAGE_PATH:-/app/data}
+    ports:
+      - "${BACKEND_HOST_PORT:-9000}:${BACKEND_CONTAINER_PORT:-9000}"
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - cloud-drive-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${BACKEND_CONTAINER_PORT:-9000}/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/cloud-drive-frontend/Dockerfile
+    container_name: ${FRONTEND_CONTAINER_NAME:-cloud-drive-frontend}
+    profiles: ["frontend", "full"]
+    environment:
+      BACKEND_UPSTREAM_HOST: ${BACKEND_UPSTREAM_HOST:-backend}
+      BACKEND_CONTAINER_PORT: ${BACKEND_CONTAINER_PORT:-9000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    networks:
+      - cloud-drive-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  cloud-drive-network:
+    name: ${NETWORK_NAME:-cloud-drive-network}
+    driver: bridge
+
+volumes:
+  backend-data:
+    name: ${BACKEND_VOLUME_NAME:-backend-data}
