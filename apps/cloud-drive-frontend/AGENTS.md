@@ -1,81 +1,21 @@
-# AGENTS.md - Frontend
+# AGENTS.md（前端索引）
 
-**App**: cloud-drive-frontend  
-**Stack**: Vue 3.5 + TypeScript + Vite + Tailwind CSS  
-**Location**: `/Users/shi/study/frontend/projects/cloud-drive/apps/cloud-drive-frontend`
+> 本文件仅保留前端导航。详细内容统一维护在仓库 `docs/`。
 
-## Entry Points
+## 前端核心文档
 
-| File | Purpose |
-|------|---------|
-| `src/main.ts` | Bootstraps Vue app, Pinia (with persist), router |
-| `src/App.vue` | Root component with `<router-view>` |
-| `src/router/index.ts` | Router with `beforeEach` auth guard |
+- 前端结构：[../../docs/frontend-structure.md](../../docs/frontend-structure.md)
+- 项目上下文：[../../docs/project-context.md](../../docs/project-context.md)
+- 项目约束：[../../docs/project-constraints.md](../../docs/project-constraints.md)
+- AI 执行方式：[../../docs/ai-execution.md](../../docs/ai-execution.md)
+- 测试提示：[../../docs/testing-guide.md](../../docs/testing-guide.md)
 
-## Auth & State Management
+## 回链入口
 
-**Store**: `src/stores/user.ts`
-- Pinia store with `pinia-plugin-persistedstate`
-- Token persisted to localStorage automatically
-- Store survives page refresh
+- 全局索引：[../../AGENTS.md](../../AGENTS.md)
+- 文档总索引：[../../docs/README.md](../../docs/README.md)
 
-**Auth Guard**: `src/router/index.ts`
-- Calls `checkLogin()` API before protected routes
-- Redirects to `/require-login` if not authenticated
-- `/home/pickup-codes` is **exempt** (public access)
+## 使用边界
 
-**API Client**: `src/services/request.ts`
-- Axios instance with interceptors
-- Auto-adds `Authorization: Bearer {token}` header
-- Reads token from localStorage (key: `user`)
-
-## Routing
-
-**Routes**: `src/router/route.ts`
-
-| Path | Component | Auth Required |
-|------|-----------|---------------|
-| `/login` | Login.vue | No |
-| `/register` | Register.vue | No |
-| `/require-login` | RequireLogin.vue | No |
-| `/home` | HomePage.vue | Yes (parent) |
-| `/home/dashboard` | Dashboard.vue | Yes |
-| `/home/files` | FileManagement.vue | Yes |
-| `/home/pickup-codes` | PickupCodes.vue | **No** |
-| `/home/upload` | UploadFile.vue | Yes |
-| `/home/share` | ShareFile.vue | Yes |
-
-## Styling
-
-**Tailwind Config**: Custom theme in `tailwind.config.js`
-- Primary color: `#10b674` (green)
-- Dark mode: class-based (`dark` class on root)
-- Custom fonts: `display: Inter, sans-serif`
-
-**Dark Mode Toggle**: Add/remove `dark` class on `<html>` element
-
-## API Integration
-
-**Proxy**: Vite dev server proxies `/api` → `http://localhost:9000`
-- Config: `vite.config.ts`
-- Strips `/api` prefix before forwarding
-
-**Auth API**: `src/services/apis/auth.ts`
-- `login(data)` - POST /api/auth/login
-- `register(data)` - POST /api/auth/register
-- `checkLogin()` - GET /api/auth/check
-
-## Commands
-
-```bash
-pnpm dev        # Start dev server (port 5173)
-pnpm build      # Production build (vue-tsc + vite)
-pnpm preview    # Preview production build
-```
-
-## Critical Notes
-
-1. **Token Storage**: Token stored in localStorage under key `user` (JSON: `{token: "..."}`)
-2. **No Tests**: No test framework configured (consider adding Vitest)
-3. **Strict TS**: Unused vars/params are errors (tsconfig.app.json)
-4. **Debug Code**: `console.log(res)` in router guard (line 21) - remove for production
+- 当前文件只提供“前端相关内容去哪里看”的导航。
+- 路由、状态、接口、命令等具体细节只在 `docs/` 正文维护。
