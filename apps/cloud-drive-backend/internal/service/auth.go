@@ -1,10 +1,12 @@
 package service
 
 import (
+	"fmt"
+
+	"cloud-drive-backend/internal/errors"
 	"cloud-drive-backend/internal/model"
 	"cloud-drive-backend/internal/repository"
 	"cloud-drive-backend/internal/utils"
-	"errors"
 )
 
 type AuthService interface {
@@ -14,27 +16,37 @@ type AuthService interface {
 	GetUserByID(userID uint) (user *model.UserModel, error error)
 }
 
+type UserRepoInterface interface {
+	Create(user *model.UserModel) error
+	GetUserByName(username string) (*model.UserModel, error)
+	GetUserByID(userID uint) (*model.UserModel, error)
+}
+
 type authService struct {
-	UserRepository *repository.UserRepository
+	UserRepo UserRepoInterface
 }
 
 func NewAuthService(userRepository *repository.UserRepository) AuthService {
 	return &authService{
-		UserRepository: userRepository,
+		UserRepo: userRepository,
 	}
 }
 
 func (s *authService) RegisterUser(user *model.UserModel) error {
-	return s.UserRepository.Create(user)
+	err := s.UserRepo.Create(user)
+	if err != nil {
+		return fmt.Errorf("注册用户失败: %w", err)
+	}
+	return nil
 }
 
 func (s *authService) ValidateUser(username string, password string) (user *model.UserModel, error error) {
-	user, err := s.UserRepository.GetUserByName(username)
+	user, err := s.UserRepo.GetUserByName(username)
 	if err != nil {
-		return nil, errors.New("用户不存在")
+		return nil, errors.Wrap(err, "用户不存在")
 	}
 	if err := utils.CheckPassword(user.PasswordHash, password); err != nil {
-		return nil, errors.New("密码错误")
+		return nil, errors.ErrInvalidPassword
 	}
 	return user, nil
 }
@@ -44,5 +56,9 @@ func (s *authService) GenerateToken(userID uint) (token string, error error) {
 }
 
 func (s *authService) GetUserByID(userID uint) (user *model.UserModel, error error) {
-	return s.UserRepository.GetUserByID(userID)
+	user, err := s.UserRepo.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("获取用户信息失败: %w", err)
+	}
+	return user, nil
 }

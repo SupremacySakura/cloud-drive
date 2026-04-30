@@ -1,5 +1,7 @@
 # Cloud Drive
 
+[![CI](https://github.com/OWNER/cloud-drive/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/cloud-drive/actions/workflows/ci.yml)
+
 Cloud Drive 是一个全栈网盘示例项目，包含：
 
 - 前端：Vue 3 + TypeScript（`apps/cloud-drive-frontend`）

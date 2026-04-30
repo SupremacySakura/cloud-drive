@@ -13,7 +13,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         path: '/home/dashboard',
-        component: () => import('../pages/Dashboard.vue'),
+        component: () => import('../pages/DashboardPage.vue'),
         meta: { requiresAuth: true },
       },
       {
@@ -35,11 +35,11 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/login',
-    component: () => import('../pages/Login.vue'),
+    component: () => import('../pages/LoginPage.vue'),
   },
   {
     path: '/register',
-    component: () => import('../pages/Register.vue'),
+    component: () => import('../pages/RegisterPage.vue'),
   },
   {
     path: '/require-login',

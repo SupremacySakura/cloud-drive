@@ -187,7 +187,11 @@ watch(
         >
           <div class="flex justify-between items-start mb-6">
             <h3 class="font-bold">存储使用情况</h3>
-            <Icon icon="material-symbols:info-outline-rounded" class="text-2xl text-slate-400" />
+            <Icon
+              icon="material-symbols:info-outline-rounded"
+              class="text-2xl text-slate-400"
+              aria-hidden="true"
+            />
           </div>
 
           <div class="flex items-center justify-center py-6">

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import { register } from '../services/apis/auth'
-
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { login } from '../services/apis/auth'
+import { useUserStore } from '../stores/user'
 const router = useRouter()
+const route = useRoute()
 
 const form = ref({
   username: '',
-  email: '',
   password: '',
 })
 
@@ -17,13 +17,9 @@ const passwordInputType = computed(() => (showPassword.value ? 'text' : 'passwor
 const isSubmitting = ref(false)
 const errorMessage = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
+const userStore = useUserStore()
 const validate = () => {
   if (!form.value.username.trim()) return '请输入用户名'
-  if (!form.value.email.trim()) return '请输入邮箱'
-  if (!emailRegex.test(form.value.email.trim())) return '邮箱格式不正确'
   if (!form.value.password) return '请输入密码'
   if (form.value.password.length < 6) return '密码至少 6 位'
   return null
@@ -41,23 +37,29 @@ const onSubmit = async () => {
 
   isSubmitting.value = true
   try {
-    const res = await register({
+    const res = await login({
       username: form.value.username.trim(),
-      email: form.value.email.trim(),
       password: form.value.password,
     })
-
     if (typeof res?.code === 'number' && res.code !== 0) {
-      errorMessage.value = res.msg || '注册失败'
+      errorMessage.value = res.msg || '登录失败'
       return
     }
 
-    successMessage.value = res?.msg || '注册成功'
+    const token = res?.data?.token
+    if (!token) {
+      errorMessage.value = res?.msg || '登录失败：未获取到 token'
+      return
+    }
+    userStore.setToken(token)
+
+    successMessage.value = res?.msg || '登录成功'
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
     setTimeout(() => {
-      router.push('/login')
-    }, 600)
-  } catch (e: any) {
-    errorMessage.value = e?.message || '网络错误，请稍后重试'
+      router.push(redirect)
+    }, 200)
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof Error ? error.message : '网络错误，请稍后重试'
   } finally {
     isSubmitting.value = false
   }
@@ -98,8 +100,8 @@ const onSubmit = async () => {
       >
         <div class="p-8">
           <div class="mb-8">
-            <h1 class="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">创建账号</h1>
-            <p class="text-slate-500 dark:text-slate-400">加入云盘，安全存储您的文件。</p>
+            <h1 class="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">欢迎回来</h1>
+            <p class="text-slate-500 dark:text-slate-400">登录以继续使用云盘。</p>
           </div>
 
           <div
@@ -129,28 +131,8 @@ const onSubmit = async () => {
                   v-model="form.username"
                   name="username"
                   type="text"
-                  placeholder="请输入唯一用户名"
+                  placeholder="请输入用户名"
                   autocomplete="username"
-                  class="w-full h-12 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                />
-              </div>
-            </div>
-
-            <div class="space-y-2">
-              <label
-                class="block text-sm font-semibold text-slate-700 dark:text-slate-300"
-                for="email"
-              >
-                邮箱地址
-              </label>
-              <div class="relative">
-                <input
-                  id="email"
-                  v-model="form.email"
-                  name="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  autocomplete="email"
                   class="w-full h-12 px-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
               </div>
@@ -169,8 +151,8 @@ const onSubmit = async () => {
                   v-model="form.password"
                   name="password"
                   :type="passwordInputType"
-                  placeholder="请创建一个强密码"
-                  autocomplete="new-password"
+                  placeholder="请输入密码"
+                  autocomplete="current-password"
                   class="w-full h-12 px-4 pr-12 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
                 <button
@@ -178,7 +160,56 @@ const onSubmit = async () => {
                   type="button"
                   :aria-label="showPassword ? '隐藏密码' : '显示密码'"
                   @click="showPassword = !showPassword"
-                ></button>
+                >
+                  <svg
+                    v-if="showPassword"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    class="w-5 h-5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 12C4.8 7.8 8.1 5.5 12 5.5C15.9 5.5 19.2 7.8 21 12C19.2 16.2 15.9 18.5 12 18.5C8.1 18.5 4.8 16.2 3 12Z"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M12 15.2C10.2327 15.2 8.8 13.7673 8.8 12C8.8 10.2327 10.2327 8.8 12 8.8C13.7673 8.8 15.2 10.2327 15.2 12C15.2 13.7673 13.7673 15.2 12 15.2Z"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <svg
+                    v-else
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    class="w-5 h-5"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 12C4.8 7.8 8.1 5.5 12 5.5C15.9 5.5 19.2 7.8 21 12C19.2 16.2 15.9 18.5 12 18.5C8.1 18.5 4.8 16.2 3 12Z"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M9.6 14.4C9.03333 13.8333 8.7 12.9 8.8 12C8.9 11.1 9.2 10.4 9.6 9.6"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M4.5 4.5L19.5 19.5"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
               </div>
             </div>
 
@@ -187,7 +218,7 @@ const onSubmit = async () => {
               type="submit"
               :disabled="isSubmitting"
             >
-              {{ isSubmitting ? '注册中...' : '注册' }}
+              {{ isSubmitting ? '登录中...' : '登录' }}
             </button>
           </form>
         </div>
@@ -196,10 +227,10 @@ const onSubmit = async () => {
           class="bg-slate-50 dark:bg-slate-800/50 p-6 text-center border-t border-slate-100 dark:border-slate-800"
         >
           <p class="text-slate-600 dark:text-slate-400">
-            已经有账号了？
-            <RouterLink class="text-primary font-bold hover:underline" to="/login"
-              >返回登录
-            </RouterLink>
+            还没有账号？
+            <RouterLink class="text-primary font-bold hover:underline" to="/register"
+              >立即注册</RouterLink
+            >
           </p>
         </div>
       </div>

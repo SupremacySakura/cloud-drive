@@ -221,8 +221,8 @@ const confirmDeletePickupCode = async () => {
     showDeleteConfirm.value = false
     deleteTargetItem.value = null
     await fetchData()
-  } catch (e: any) {
-    displayToast(e?.message || '删除取件码失败', 'error')
+  } catch (error: unknown) {
+    displayToast(error instanceof Error ? error.message : '删除取件码失败', 'error')
   } finally {
     deletingCodeId.value = null
   }
@@ -261,19 +261,21 @@ onBeforeUnmount(() => {
           </div>
           <div class="flex items-center gap-3">
             <button
-              class="flex items-center gap-2 cursor-pointer border border-primary/30 text-primary hover:bg-primary/5 rounded-lg h-11 px-6 font-bold transition-all"
+              class="flex items-center gap-2 cursor-pointer border border-primary/30 text-primary hover:bg-primary/5 rounded-lg h-11 px-6 font-bold transition-all focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="去取件页面"
               @click="goToFilePickup"
             >
-              <Icon icon="material-symbols:download-rounded" class="text-xl" />
+              <Icon icon="material-symbols:download-rounded" class="text-xl" aria-hidden="true" />
               <span>去取件</span>
             </button>
             <button
-              class="flex items-center gap-2 cursor-pointer bg-primary hover:bg-primary/90 text-white rounded-lg h-11 px-6 font-bold transition-all shadow-lg shadow-primary/20"
+              class="flex items-center gap-2 cursor-pointer bg-primary hover:bg-primary/90 text-white rounded-lg h-11 px-6 font-bold transition-all shadow-lg shadow-primary/20 focus:ring-2 focus:ring-primary/50 focus:outline-none"
               type="button"
+              aria-label="创建新取件码"
               @click="openCreateModal"
             >
-              <Icon icon="material-symbols:add-rounded" class="text-xl" />
+              <Icon icon="material-symbols:add-rounded" class="text-xl" aria-hidden="true" />
               <span>创建新取件码</span>
             </button>
           </div>
@@ -353,11 +355,23 @@ onBeforeUnmount(() => {
           >
             <h3 class="font-bold text-slate-900 dark:text-white">活跃取件码仓库</h3>
             <div class="flex items-center gap-2">
-              <button class="p-2 text-slate-500 hover:text-primary transition-colors" type="button">
-                <Icon icon="material-symbols:filter-list-rounded" class="text-xl" />
+              <button
+                class="p-2 text-slate-500 hover:text-primary transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
+                type="button"
+                aria-label="筛选"
+              >
+                <Icon
+                  icon="material-symbols:filter-list-rounded"
+                  class="text-xl"
+                  aria-hidden="true"
+                />
               </button>
-              <button class="p-2 text-slate-500 hover:text-primary transition-colors" type="button">
-                <Icon icon="material-symbols:sort-rounded" class="text-xl" />
+              <button
+                class="p-2 text-slate-500 hover:text-primary transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
+                type="button"
+                aria-label="排序"
+              >
+                <Icon icon="material-symbols:sort-rounded" class="text-xl" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -368,31 +382,44 @@ onBeforeUnmount(() => {
                 class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
               >
                 <tr>
-                  <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th
+                    scope="col"
+                    class="py-4 px-6 text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
                     Pickup Code
                   </th>
-                  <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th
+                    scope="col"
+                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
                     Associated File
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell"
                   >
                     Usage Progress
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell"
                   >
                     Downloads
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell"
                   >
                     Expiration
                   </th>
-                  <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th
+                    scope="col"
+                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
                     Status
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500"
                   >
                     Actions
@@ -484,9 +511,10 @@ onBeforeUnmount(() => {
                     <button
                       class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
                       type="button"
+                      aria-label="取件码操作菜单"
                       @click="e => openPickupMenu(item, e)"
                     >
-                      <Icon icon="material-symbols:more-vert" />
+                      <Icon icon="material-symbols:more-vert" aria-hidden="true" />
                     </button>
                   </td>
                 </tr>
@@ -508,23 +536,26 @@ onBeforeUnmount(() => {
             </p>
             <div class="flex items-center gap-2">
               <button
-                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="上一页"
                 :disabled="currentPage <= 1 || loading"
                 @click="handlePageChange(currentPage - 1)"
               >
-                <Icon class="text-sm" icon="material-symbols:chevron-left" />
+                <Icon class="text-sm" icon="material-symbols:chevron-left" aria-hidden="true" />
               </button>
               <button
                 v-for="p in pageNumbers"
                 :key="p"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 :class="
                   p === currentPage
                     ? 'bg-primary text-white font-bold'
                     : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'
                 "
                 type="button"
+                :aria-label="`第 ${p} 页`"
+                :aria-current="p === currentPage ? 'page' : undefined"
                 :disabled="loading"
                 @click="handlePageChange(p)"
               >
@@ -532,12 +563,13 @@ onBeforeUnmount(() => {
               </button>
               <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
               <button
-                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="下一页"
                 :disabled="currentPage >= totalPages || loading"
                 @click="handlePageChange(currentPage + 1)"
               >
-                <Icon class="text-sm" icon="material-symbols:chevron-right" />
+                <Icon class="text-sm" icon="material-symbols:chevron-right" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -571,11 +603,12 @@ onBeforeUnmount(() => {
           >
             <h3 class="text-lg font-bold text-slate-900 dark:text-white">Pickup Code Details</h3>
             <button
-              class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none rounded"
               type="button"
+              aria-label="关闭详情"
               @click="handleCloseDetail"
             >
-              <Icon icon="material-symbols:close-rounded" class="text-xl" />
+              <Icon icon="material-symbols:close-rounded" class="text-xl" aria-hidden="true" />
             </button>
           </div>
 
@@ -634,14 +667,16 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
+              aria-label="关闭详情"
               @click="handleCloseDetail"
             >
               Close
             </button>
             <button
               type="button"
-              class="px-6 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors"
+              class="px-6 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              aria-label="复制取件码"
               @click="handleCopyCode(selectedItem.code)"
             >
               Copy Code
@@ -721,25 +756,28 @@ onBeforeUnmount(() => {
         @click="onStopPropagation"
       >
         <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
           type="button"
+          aria-label="复制取件码"
           @click="handleCopyCode(menuTargetItem?.code || '')"
         >
-          <Icon class="text-sm" icon="material-symbols:content-copy" />
+          <Icon class="text-sm" icon="material-symbols:content-copy" aria-hidden="true" />
           复制取件码
         </button>
         <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
           type="button"
+          aria-label="查看取件码详情"
           @click="handleViewDetailFromMenu"
         >
-          <Icon class="text-sm" icon="material-symbols:visibility" />
+          <Icon class="text-sm" icon="material-symbols:visibility" aria-hidden="true" />
           查看详情
         </button>
         <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
         <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           type="button"
+          aria-label="删除取件码"
           :disabled="deletingCodeId !== null"
           @click="handleDeleteFromMenu"
         >

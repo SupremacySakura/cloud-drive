@@ -1,4 +1,8 @@
 <script setup lang="ts">
+// 引入拆分后的组合式 API（部分保留供未来使用）
+import { useFilePreview } from '../composables/useFilePreview'
+import { useFileOperations } from '../composables/useFileOperations'
+import { useBreadcrumb } from '../composables/useBreadcrumb'
 import { Icon } from '@iconify/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
@@ -55,6 +59,11 @@ type UploadTask = {
 
 const userStore = useUserStore()
 
+// Composables reserved for future use
+void useFilePreview()
+void useFileOperations()
+void useBreadcrumb()
+
 type ViewMode = 'list' | 'grid'
 type SortKey = 'name' | 'size' | 'modified'
 type SortDirection = 'asc' | 'desc'
@@ -80,6 +89,11 @@ const deletingMenuTargetId = ref<string | null>(null)
 const selectedIds = ref<Set<number>>(new Set())
 const menuPosition = ref<{ top: number; left: number } | null>(null)
 
+// 搜索相关状态
+const searchQuery = ref('')
+const debouncedSearchQuery = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
 const currentFolderId = ref(0)
 const breadcrumbs = ref<BreadcrumbItem[]>([{ id: 0, name: 'root' }])
 
@@ -89,6 +103,7 @@ const totalCount = ref(0)
 
 const isLoading = ref(false)
 const errorMessage = ref<string | null>(null)
+const listAbortController = ref<AbortController | null>(null)
 
 // 创建文件夹相关状态
 const isCreateFolderModalOpen = ref(false)
@@ -136,6 +151,9 @@ const toastType = ref<'success' | 'error' | 'info'>('info')
 const showToast = ref(false)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
+// 分页跳转输入框
+const jumpToPageInput = ref('')
+
 // 并发控制：最大同时上传文件数
 const MAX_CONCURRENT_UPLOADS = 3
 
@@ -151,24 +169,57 @@ const typeLabelForItem = (item: FileListItem) => {
 }
 
 const fetchFolder = async (folderId: number) => {
+  if (listAbortController.value) {
+    listAbortController.value.abort()
+  }
+  listAbortController.value = new AbortController()
+  const signal = listAbortController.value.signal
+
   isLoading.value = true
   errorMessage.value = null
   openMenuId.value = null
   selectedIds.value = new Set()
   try {
-    const count = await getListCountByFolderIDAndUserID(folderId)
+    const count = await getListCountByFolderIDAndUserID(folderId, signal)
     totalCount.value = Number.isFinite(count) ? count : 0
     const totalPages = Math.max(1, Math.ceil(totalCount.value / pageSize.value))
     if (page.value > totalPages) page.value = totalPages
 
-    const list = await getListByFolderIDAndUserID(folderId, page.value, pageSize.value)
+    const list = await getListByFolderIDAndUserID(folderId, page.value, pageSize.value, signal)
     rawItems.value = Array.isArray(list) ? list : []
-  } catch (e: any) {
+  } catch (error: unknown) {
+    if (error instanceof Error && (error.name === 'CanceledError' || error.name === 'AbortError')) {
+      return
+    }
     rawItems.value = []
     totalCount.value = 0
-    errorMessage.value = e?.message || '加载失败'
+    errorMessage.value = error instanceof Error ? error.message : '加载失败'
   } finally {
     isLoading.value = false
+  }
+}
+
+// 搜索 debounce 处理
+const onSearchInput = (value: string) => {
+  searchQuery.value = value
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    debouncedSearchQuery.value = value
+    // 搜索时重置到第一页
+    if (page.value !== 1) {
+      page.value = 1
+      fetchFolder(currentFolderId.value)
+    }
+  }, 300)
+}
+
+// 清空搜索
+const clearSearch = () => {
+  searchQuery.value = ''
+  debouncedSearchQuery.value = ''
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
   }
 }
 
@@ -184,7 +235,10 @@ const sortedFiles = computed(() => {
       lastModifiedText: formatTime(item.updated_at),
     }
   })
-  const data = mapped
+  // 按搜索关键词过滤
+  const query = debouncedSearchQuery.value.trim().toLowerCase()
+  const filtered = query ? mapped.filter(item => item.name.toLowerCase().includes(query)) : mapped
+  const data = filtered
   data.sort((a, b) => {
     if (sortKey.value === 'name') return dir * a.name.localeCompare(b.name)
     if (sortKey.value === 'size') return dir * ((a.size ?? 0) - (b.size ?? 0))
@@ -243,6 +297,18 @@ const goToPage = async (nextPage: number) => {
   if (clamped === page.value) return
   page.value = clamped
   await fetchFolder(currentFolderId.value)
+}
+
+const handleJumpToPage = async () => {
+  const target = parseInt(jumpToPageInput.value, 10)
+  if (!Number.isFinite(target) || target < 1 || target > totalPages.value) return
+  jumpToPageInput.value = ''
+  await goToPage(target)
+}
+
+const selectCurrentPage = () => {
+  const ids = sortedFiles.value.map(f => f.id)
+  selectedIds.value = new Set(ids)
 }
 
 const goToFolder = async (folderId: number, folderName: string) => {
@@ -431,8 +497,8 @@ const openPreviewModal = async (file: DisplayItem) => {
       }
     }
     previewUrl.value = URL.createObjectURL(blob)
-  } catch (e: any) {
-    previewError.value = e?.message || '预览失败'
+  } catch (error: unknown) {
+    previewError.value = error instanceof Error ? error.message : '预览失败'
   } finally {
     previewLoading.value = false
   }
@@ -455,8 +521,8 @@ const handleDownloadFromMenu = async () => {
       target.type === 'folder' ? target.id : 0,
     )
     displayToast(`开始下载：${target.name}`, 'success')
-  } catch (e: any) {
-    displayToast(e?.message || '下载失败', 'error')
+  } catch (error: unknown) {
+    displayToast(error instanceof Error ? error.message : '下载失败', 'error')
   } finally {
     downloadingMenuTargetId.value = null
   }
@@ -471,8 +537,8 @@ const generatePublicShareLink = async () => {
     // 始终使用前端构造的 URL，确保包含 /api 前缀以便 Vite 代理正确转发
     publicShareLink.value = `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
     displayToast('分享链接已生成', 'success')
-  } catch (e: any) {
-    shareError.value = e?.message || '生成分享链接失败'
+  } catch (error: unknown) {
+    shareError.value = error instanceof Error ? error.message : '生成分享链接失败'
   } finally {
     isCreatingShareLink.value = false
   }
@@ -483,8 +549,8 @@ const loadExistingPublicShareLink = async (fileId: number) => {
   try {
     const data = await getPublicShareLink(fileId)
     publicShareLink.value = data?.exists && data?.url ? data.url : ''
-  } catch (e: any) {
-    shareError.value = e?.message || '获取分享链接失败'
+  } catch (error: unknown) {
+    shareError.value = error instanceof Error ? error.message : '获取分享链接失败'
   }
 }
 
@@ -496,8 +562,8 @@ const removePublicShareLink = async () => {
     await deletePublicShareLink(previewingFile.value.id)
     publicShareLink.value = ''
     displayToast('分享链接已删除', 'success')
-  } catch (e: any) {
-    shareError.value = e?.message || '删除分享链接失败'
+  } catch (error: unknown) {
+    shareError.value = error instanceof Error ? error.message : '删除分享链接失败'
   } finally {
     isDeletingShareLink.value = false
   }
@@ -595,9 +661,9 @@ const loadMoveBrowserFolders = async (folderId: number) => {
   try {
     const list = await getListByFolderIDAndUserID(folderId, 1, 100)
     moveBrowserFolders.value = list.filter(item => item.type === 'folder')
-  } catch (e: any) {
+  } catch (error: unknown) {
     moveBrowserFolders.value = []
-    displayToast(e?.message || '加载目录失败', 'error')
+    displayToast(error instanceof Error ? error.message : '加载目录失败', 'error')
   } finally {
     isMoveBrowserLoading.value = false
   }
@@ -669,8 +735,8 @@ const handleCreateFolder = async () => {
     } else {
       errorMessage.value = '创建文件夹失败'
     }
-  } catch (e: any) {
-    errorMessage.value = e?.message || '创建文件夹失败'
+  } catch (error: unknown) {
+    errorMessage.value = error instanceof Error ? error.message : '创建文件夹失败'
   } finally {
     isCreatingFolder.value = false
   }
@@ -701,8 +767,8 @@ const handleRename = async () => {
     displayToast('重命名成功', 'success')
     closeRenameModal()
     await fetchFolder(currentFolderId.value)
-  } catch (e: any) {
-    const msg = e?.message || '重命名失败'
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '重命名失败'
     errorMessage.value = msg
     displayToast(msg, 'error')
   } finally {
@@ -727,8 +793,8 @@ const handleMove = async () => {
     displayToast('移动成功', 'success')
     closeMoveModal()
     await fetchFolder(currentFolderId.value)
-  } catch (e: any) {
-    const msg = e?.message || '移动失败'
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '移动失败'
     errorMessage.value = msg
     displayToast(msg, 'error')
   } finally {
@@ -762,8 +828,8 @@ const confirmDeleteFromModal = async () => {
     displayToast('删除成功', 'success')
     closeDeleteConfirmModal(true)
     await fetchFolder(currentFolderId.value)
-  } catch (e: any) {
-    const msg = e?.message || '删除失败'
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '删除失败'
     errorMessage.value = msg
     displayToast(msg, 'error')
   } finally {
@@ -958,12 +1024,12 @@ const processUploadTask = async (task: UploadTask): Promise<void> => {
     task.status = 'success'
     task.percent = 100
     task.message = '上传完成'
-  } catch (e: any) {
+  } catch (error: unknown) {
     if (task.canceled) return
     task.status = 'failed'
-    task.message = e?.message || '上传失败'
+    task.message = error instanceof Error ? error.message : '上传失败'
     // 重新抛出错误，让上层知道失败了
-    throw e
+    throw error
   }
 }
 
@@ -1117,6 +1183,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', onGlobalClick)
   revokePreviewUrl()
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+  if (listAbortController.value) {
+    listAbortController.value.abort()
+    listAbortController.value = null
+  }
 })
 </script>
 
@@ -1132,8 +1206,9 @@ onBeforeUnmount(() => {
             <div>
               <nav class="flex items-center gap-2 text-sm text-slate-500 mb-2">
                 <button
-                  class="hover:text-primary flex items-center"
+                  class="hover:text-primary flex items-center focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
                   type="button"
+                  aria-label="返回根目录"
                   @click="goToBreadcrumb(0)"
                 >
                   <Icon class="text-sm mr-1" icon="material-symbols:home" />
@@ -1143,8 +1218,9 @@ onBeforeUnmount(() => {
                   <Icon class="text-sm" icon="material-symbols:chevron-right" />
                   <button
                     v-if="idx + 1 < breadcrumbs.length - 1"
-                    class="hover:text-primary flex items-center"
+                    class="hover:text-primary flex items-center focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
                     type="button"
+                    :aria-label="`导航到 ${bc.name} 文件夹`"
                     @click="goToBreadcrumb(idx + 1)"
                   >
                     {{ bc.name }}
@@ -1179,8 +1255,9 @@ onBeforeUnmount(() => {
               />
 
               <button
-                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="新建文件夹"
                 @click="openCreateFolderModal"
               >
                 <Icon class="text-[20px]" icon="material-symbols:create-new-folder" />
@@ -1190,8 +1267,9 @@ onBeforeUnmount(() => {
               <!-- 上传下拉菜单 -->
               <div class="relative group">
                 <button
-                  class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                  class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all focus:ring-2 focus:ring-primary/50 focus:outline-none"
                   type="button"
+                  aria-label="上传文件或文件夹"
                 >
                   <Icon class="text-[20px]" icon="material-symbols:upload" />
                   上传
@@ -1201,16 +1279,18 @@ onBeforeUnmount(() => {
                   class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 py-2"
                 >
                   <button
-                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                     type="button"
+                    aria-label="上传文件"
                     @click="openFileDialog"
                   >
                     <Icon icon="material-symbols:description" />
                     上传文件
                   </button>
                   <button
-                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+                    class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                     type="button"
+                    aria-label="上传文件夹"
                     @click="openFolderDialog"
                   >
                     <Icon icon="material-symbols:folder" />
@@ -1222,9 +1302,10 @@ onBeforeUnmount(() => {
               <!-- 上传进度按钮（当有任务时显示） -->
               <button
                 v-if="uploadTasks.length > 0"
-                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all"
+                class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-900 transition-all focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 :class="isUploadPanelOpen ? 'bg-slate-50 dark:bg-slate-900' : ''"
                 type="button"
+                aria-label="查看上传进度"
                 @click="toggleUploadPanel"
               >
                 <Icon
@@ -1250,6 +1331,33 @@ onBeforeUnmount(() => {
             class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 mb-6 p-3 flex flex-wrap items-center justify-between gap-4 shadow-sm"
           >
             <div class="flex items-center gap-2">
+              <!-- 搜索框 -->
+              <div class="relative">
+                <Icon
+                  class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"
+                  icon="material-symbols:search"
+                />
+                <input
+                  :value="searchQuery"
+                  type="text"
+                  placeholder="搜索文件..."
+                  aria-label="搜索文件"
+                  class="pl-9 pr-8 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary w-48 placeholder:text-slate-400"
+                  @input="onSearchInput(($event.target as HTMLInputElement).value)"
+                />
+                <button
+                  v-if="searchQuery"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
+                  type="button"
+                  aria-label="清空搜索"
+                  @click="clearSearch"
+                >
+                  <Icon class="text-sm" icon="material-symbols:close" />
+                </button>
+              </div>
+
+              <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-1"></div>
+
               <button
                 class="p-2 rounded-lg"
                 :class="
@@ -1257,11 +1365,11 @@ onBeforeUnmount(() => {
                     ? 'bg-primary/10 text-primary'
                     : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
                 "
-                title="List View"
+                aria-label="列表视图"
                 type="button"
                 @click="viewMode = 'list'"
               >
-                <Icon icon="material-symbols:list" />
+                <Icon icon="material-symbols:list" aria-hidden="true" />
               </button>
               <button
                 class="p-2 rounded-lg"
@@ -1270,18 +1378,19 @@ onBeforeUnmount(() => {
                     ? 'bg-primary/10 text-primary'
                     : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'
                 "
-                title="Grid View"
+                aria-label="网格视图"
                 type="button"
                 @click="viewMode = 'grid'"
               >
-                <Icon icon="material-symbols:grid-view" />
+                <Icon icon="material-symbols:grid-view" aria-hidden="true" />
               </button>
 
               <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2"></div>
 
               <button
-                class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="筛选文件"
               >
                 <Icon class="text-[18px]" icon="material-symbols:filter-list" />
                 筛选
@@ -1292,6 +1401,13 @@ onBeforeUnmount(() => {
                 class="ml-2 flex items-center gap-2 text-sm text-slate-500"
               >
                 <span>已选择 {{ selectedCount }} 项</span>
+                <button
+                  class="text-primary font-semibold hover:underline"
+                  type="button"
+                  @click="selectCurrentPage"
+                >
+                  选择当前页
+                </button>
                 <button
                   class="text-primary font-semibold hover:underline"
                   type="button"
@@ -1357,7 +1473,7 @@ onBeforeUnmount(() => {
                 class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
               >
                 <tr>
-                  <th class="py-4 px-6 w-10">
+                  <th scope="col" class="py-4 px-6 w-10">
                     <input
                       class="rounded border-slate-300 text-primary focus:ring-primary/20"
                       type="checkbox"
@@ -1365,28 +1481,38 @@ onBeforeUnmount(() => {
                       @change="toggleAll(($event.target as HTMLInputElement).checked)"
                     />
                   </th>
-                  <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th
+                    scope="col"
+                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
                     Name
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell"
                   >
                     Type
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell"
                   >
                     Size
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell"
                   >
                     Owner
                   </th>
-                  <th class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <th
+                    scope="col"
+                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
                     Last Modified
                   </th>
                   <th
+                    scope="col"
                     class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500"
                   >
                     Actions
@@ -1398,7 +1524,10 @@ onBeforeUnmount(() => {
                 <tr
                   v-if="hasParentFolder"
                   class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors cursor-pointer"
+                  role="button"
+                  tabindex="0"
                   @click="goToParentFolder"
+                  @keyup.enter="goToParentFolder"
                 >
                   <td class="py-4 px-6"></td>
                   <td class="py-4 px-4">
@@ -1426,7 +1555,10 @@ onBeforeUnmount(() => {
                   :key="file.id"
                   class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
                   :class="file.type === 'folder' ? 'cursor-pointer' : ''"
+                  :role="file.type === 'folder' ? 'button' : undefined"
+                  :tabindex="file.type === 'folder' ? 0 : undefined"
                   @click="onRowClick(file)"
+                  @keyup.enter="file.type === 'folder' ? onRowClick(file) : undefined"
                 >
                   <td class="py-4 px-6">
                     <input
@@ -1477,16 +1609,71 @@ onBeforeUnmount(() => {
                     <button
                       class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
                       type="button"
+                      aria-label="文件操作菜单"
                       @click="e => openFileMenu(file, e)"
                     >
-                      <Icon icon="material-symbols:more-vert" />
+                      <Icon icon="material-symbols:more-vert" aria-hidden="true" />
                     </button>
                   </td>
                 </tr>
 
-                <tr v-if="sortedFiles.length === 0" class="opacity-60">
-                  <td colspan="7" class="p-10 text-center text-slate-500 dark:text-slate-400">
-                    暂无文件
+                <tr v-if="isLoading" class="">
+                  <td colspan="7" class="py-16">
+                    <div class="flex flex-col items-center justify-center text-center">
+                      <Icon
+                        icon="material-symbols:progress-activity"
+                        class="text-4xl animate-spin text-primary mb-3"
+                      />
+                      <p class="text-sm text-slate-400">加载中...</p>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="sortedFiles.length === 0 && !isLoading" class="">
+                  <td colspan="7" class="py-20">
+                    <div class="flex flex-col items-center justify-center text-center">
+                      <!-- 插图：同心圆装饰 -->
+                      <div class="relative mb-6">
+                        <div
+                          class="w-28 h-28 rounded-full bg-primary/5 flex items-center justify-center"
+                        >
+                          <div
+                            class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center"
+                          >
+                            <Icon
+                              class="text-primary text-4xl"
+                              :icon="
+                                debouncedSearchQuery
+                                  ? 'material-symbols:search-off'
+                                  : 'material-symbols:cloud-upload-outline'
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div
+                          class="absolute top-1 right-1 w-3 h-3 rounded-full bg-primary/20"
+                        ></div>
+                        <div
+                          class="absolute bottom-3 left-0 w-2 h-2 rounded-full bg-primary/15"
+                        ></div>
+                      </div>
+                      <p class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                        {{ debouncedSearchQuery ? '没有找到匹配的文件' : '还没有文件' }}
+                      </p>
+                      <p class="text-sm text-slate-400 dark:text-slate-500 mb-5">
+                        {{
+                          debouncedSearchQuery ? '试试其他关键词' : '点击上传按钮，开始管理你的文件'
+                        }}
+                      </p>
+                      <button
+                        v-if="!debouncedSearchQuery"
+                        class="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                        type="button"
+                        @click="openFileDialog"
+                      >
+                        <Icon class="text-[20px]" icon="material-symbols:upload" />
+                        上传文件
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -1506,8 +1693,9 @@ onBeforeUnmount(() => {
               </p>
               <div class="flex items-center gap-2">
                 <button
-                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="上一页"
                   :disabled="page <= 1 || isLoading"
                   @click="goToPage(page - 1)"
                 >
@@ -1516,13 +1704,15 @@ onBeforeUnmount(() => {
                 <button
                   v-for="p in pageNumbers"
                   :key="p"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   :class="
                     p === page
                       ? 'bg-primary text-white font-bold'
                       : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'
                   "
                   type="button"
+                  :aria-label="`第 ${p} 页`"
+                  :aria-current="p === page ? 'page' : undefined"
                   :disabled="isLoading"
                   @click="goToPage(p)"
                 >
@@ -1530,13 +1720,26 @@ onBeforeUnmount(() => {
                 </button>
                 <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
                 <button
-                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="下一页"
                   :disabled="page >= totalPages || isLoading"
                   @click="goToPage(page + 1)"
                 >
                   <Icon class="text-sm" icon="material-symbols:chevron-right" />
                 </button>
+                <div v-if="totalPages > 1" class="flex items-center gap-1 ml-2">
+                  <span class="text-xs text-slate-400">跳至</span>
+                  <input
+                    v-model="jumpToPageInput"
+                    type="number"
+                    :min="1"
+                    :max="totalPages"
+                    class="w-12 px-1.5 py-1 text-xs text-center border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    @keyup.enter="handleJumpToPage"
+                  />
+                  <span class="text-xs text-slate-400">页</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1625,11 +1828,56 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div
-                v-if="sortedFiles.length === 0"
-                class="col-span-full p-10 text-center text-slate-500 dark:text-slate-400"
-              >
-                暂无文件
+              <!-- 加载状态 -->
+              <div v-if="isLoading" class="col-span-full py-20">
+                <div class="flex flex-col items-center justify-center text-center">
+                  <Icon
+                    icon="material-symbols:progress-activity"
+                    class="text-4xl animate-spin text-primary mb-3"
+                  />
+                  <p class="text-sm text-slate-400">加载中...</p>
+                </div>
+              </div>
+              <!-- 空状态 -->
+              <div v-else-if="sortedFiles.length === 0" class="col-span-full py-20">
+                <div class="flex flex-col items-center justify-center text-center">
+                  <!-- 插图：同心圆装饰 -->
+                  <div class="relative mb-6">
+                    <div
+                      class="w-28 h-28 rounded-full bg-primary/5 flex items-center justify-center"
+                    >
+                      <div
+                        class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center"
+                      >
+                        <Icon
+                          class="text-primary text-4xl"
+                          :icon="
+                            debouncedSearchQuery
+                              ? 'material-symbols:search-off'
+                              : 'material-symbols:cloud-upload-outline'
+                          "
+                        />
+                      </div>
+                    </div>
+                    <div class="absolute top-1 right-1 w-3 h-3 rounded-full bg-primary/20"></div>
+                    <div class="absolute bottom-3 left-0 w-2 h-2 rounded-full bg-primary/15"></div>
+                  </div>
+                  <p class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                    {{ debouncedSearchQuery ? '没有找到匹配的文件' : '还没有文件' }}
+                  </p>
+                  <p class="text-sm text-slate-400 dark:text-slate-500 mb-5">
+                    {{ debouncedSearchQuery ? '试试其他关键词' : '点击上传按钮，开始管理你的文件' }}
+                  </p>
+                  <button
+                    v-if="!debouncedSearchQuery"
+                    class="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                    type="button"
+                    @click="openFileDialog"
+                  >
+                    <Icon class="text-[20px]" icon="material-symbols:upload" />
+                    上传文件
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1649,8 +1897,9 @@ onBeforeUnmount(() => {
               </p>
               <div class="flex items-center gap-2">
                 <button
-                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="上一页"
                   :disabled="page <= 1 || isLoading"
                   @click="goToPage(page - 1)"
                 >
@@ -1659,13 +1908,15 @@ onBeforeUnmount(() => {
                 <button
                   v-for="p in pageNumbers"
                   :key="p"
-                  class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium"
+                  class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   :class="
                     p === page
                       ? 'bg-primary text-white font-bold'
                       : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'
                   "
                   type="button"
+                  :aria-label="`第 ${p} 页`"
+                  :aria-current="p === page ? 'page' : undefined"
                   :disabled="isLoading"
                   @click="goToPage(p)"
                 >
@@ -1673,13 +1924,26 @@ onBeforeUnmount(() => {
                 </button>
                 <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
                 <button
-                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900"
+                  class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="下一页"
                   :disabled="page >= totalPages || isLoading"
                   @click="goToPage(page + 1)"
                 >
                   <Icon class="text-sm" icon="material-symbols:chevron-right" />
                 </button>
+                <div v-if="totalPages > 1" class="flex items-center gap-1 ml-2">
+                  <span class="text-xs text-slate-400">跳至</span>
+                  <input
+                    v-model="jumpToPageInput"
+                    type="number"
+                    :min="1"
+                    :max="totalPages"
+                    class="w-12 px-1.5 py-1 text-xs text-center border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    @keyup.enter="handleJumpToPage"
+                  />
+                  <span class="text-xs text-slate-400">页</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1713,16 +1977,18 @@ onBeforeUnmount(() => {
 
             <div class="flex justify-end gap-3">
               <button
-                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
                 type="button"
+                aria-label="取消创建"
                 @click="closeCreateFolderModal"
                 :disabled="isCreatingFolder"
               >
                 取消
               </button>
               <button
-                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2"
+                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                 type="button"
+                aria-label="确认创建文件夹"
                 @click="handleCreateFolder"
                 :disabled="isCreatingFolder || !newFolderName.trim()"
               >
@@ -1764,16 +2030,18 @@ onBeforeUnmount(() => {
             </div>
             <div class="flex justify-end gap-3">
               <button
-                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
                 type="button"
+                aria-label="取消重命名"
                 @click="closeRenameModal"
                 :disabled="isRenaming"
               >
                 取消
               </button>
               <button
-                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                 type="button"
+                aria-label="确认重命名"
                 @click="handleRename"
                 :disabled="isRenaming || !renameName.trim()"
               >
@@ -1826,8 +2094,9 @@ onBeforeUnmount(() => {
                 </template>
               </nav>
               <button
-                class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900"
+                class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="选中当前目录作为目标"
                 @click="selectMoveTargetCurrent"
               >
                 选中当前目录
@@ -1872,16 +2141,18 @@ onBeforeUnmount(() => {
 
             <div class="mt-4 flex justify-end gap-3">
               <button
-                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors"
+                class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
                 type="button"
+                aria-label="取消移动"
                 @click="closeMoveModal"
                 :disabled="isMoving"
               >
                 取消
               </button>
               <button
-                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                class="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors flex items-center gap-2 focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                 type="button"
+                aria-label="确认移动文件"
                 @click="handleMove"
                 :disabled="isMoving"
               >
@@ -1951,8 +2222,9 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <button
-                class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
                 type="button"
+                aria-label="关闭预览"
                 @click="closePreviewModal"
               >
                 <Icon icon="material-symbols:close" />
@@ -2040,8 +2312,9 @@ onBeforeUnmount(() => {
                   class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-950 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-2 flex items-center gap-1 z-20"
                 >
                   <button
-                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white font-semibold text-sm transition-all shadow-md shadow-primary/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white font-semibold text-sm transition-all shadow-md shadow-primary/20 active:scale-95 focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                     type="button"
+                    aria-label="下载文件"
                     :disabled="!previewBlob"
                     @click="triggerPreviewDownload"
                   >
@@ -2049,8 +2322,9 @@ onBeforeUnmount(() => {
                     下载
                   </button>
                   <button
-                    class="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-primary/10 text-primary font-semibold text-sm transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    class="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-primary/10 text-primary font-semibold text-sm transition-all active:scale-95 focus:ring-2 focus:ring-primary/30 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                     type="button"
+                    aria-label="生成分享链接"
                     :disabled="isCreatingShareLink || !previewingFile"
                     @click="generatePublicShareLink"
                   >
@@ -2079,15 +2353,17 @@ onBeforeUnmount(() => {
                       class="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"
                     />
                     <button
-                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90"
+                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 focus:ring-2 focus:ring-primary/50 focus:outline-none"
                       type="button"
+                      aria-label="复制分享链接"
                       @click="copyPublicShareLink"
                     >
                       复制
                     </button>
                     <button
-                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
                       type="button"
+                      aria-label="删除分享链接"
                       :disabled="isDeletingShareLink"
                       @click="removePublicShareLink"
                     >
@@ -2160,16 +2436,18 @@ onBeforeUnmount(() => {
             <div class="flex items-center gap-1">
               <button
                 v-if="uploadTasks.some(t => t.status === 'success')"
-                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="清理已完成的上传任务"
                 @click="clearCompleted"
                 title="清理已完成"
               >
                 <Icon icon="material-symbols:cleaning-services" />
               </button>
               <button
-                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900"
+                class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="关闭上传面板"
                 @click="clearAllTasks"
                 title="关闭面板"
               >
@@ -2262,24 +2540,27 @@ onBeforeUnmount(() => {
               <div class="flex items-center gap-1">
                 <button
                   v-if="task.status === 'failed'"
-                  class="p-1 text-slate-400 hover:text-primary rounded transition-colors"
+                  class="p-1 text-slate-400 hover:text-primary rounded transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="重试上传"
                   @click="retryTask(task)"
                 >
                   <Icon icon="material-symbols:replay" class="text-sm" />
                 </button>
                 <button
                   v-if="['uploading', 'hashing', 'merging', 'pending'].includes(task.status)"
-                  class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                  class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors focus:ring-2 focus:ring-red-400 focus:outline-none"
                   type="button"
+                  aria-label="取消上传"
                   @click="cancelTask(task)"
                 >
                   <Icon icon="material-symbols:close" class="text-sm" />
                 </button>
                 <button
                   v-if="['success', 'failed', 'canceled'].includes(task.status)"
-                  class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+                  class="p-1 text-slate-400 hover:text-red-500 rounded transition-colors focus:ring-2 focus:ring-red-400 focus:outline-none"
                   type="button"
+                  aria-label="移除任务"
                   @click="removeTask(task.id)"
                 >
                   <Icon icon="material-symbols:delete" class="text-sm" />
@@ -2343,13 +2624,14 @@ onBeforeUnmount(() => {
             @click="onStopPropagation"
           >
             <button
-              class="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              class="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-primary/30 focus:outline-none"
               :class="
                 menuTargetFile?.type === 'file'
                   ? 'text-slate-700 dark:text-slate-300'
                   : 'text-slate-400'
               "
               type="button"
+              aria-label="预览文件"
               :disabled="menuTargetFile?.type !== 'file'"
               @click="handlePreviewFromMenu"
             >
@@ -2357,8 +2639,9 @@ onBeforeUnmount(() => {
               预览
             </button>
             <button
-              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="下载文件"
               :disabled="!!downloadingMenuTargetId"
               @click="handleDownloadFromMenu"
             >
@@ -2366,16 +2649,18 @@ onBeforeUnmount(() => {
               下载
             </button>
             <button
-              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="重命名文件"
               @click="openRenameModal"
             >
               <Icon class="text-sm" icon="material-symbols:edit" />
               重命名
             </button>
             <button
-              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
+              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="移动文件"
               @click="openMoveModal"
             >
               <Icon class="text-sm" icon="material-symbols:drive-file-move" />
@@ -2383,8 +2668,9 @@ onBeforeUnmount(() => {
             </button>
             <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
             <button
-              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+              class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-2 focus:ring-red-400 focus:outline-none"
               type="button"
+              aria-label="删除文件"
               :disabled="!!deletingMenuTargetId"
               @click="handleDeleteFromMenu"
             >

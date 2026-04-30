@@ -1,19 +1,30 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/rand"
+	"io"
+	"math/big"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+
 	"cloud-drive-backend/internal/dto"
+	"cloud-drive-backend/internal/errors"
 	"cloud-drive-backend/internal/middleware"
 	"cloud-drive-backend/internal/model"
 	"cloud-drive-backend/internal/response"
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/vo"
-	"crypto/rand"
-	"errors"
-	"math/big"
-	"net/url"
-	"strings"
 
 	"github.com/gin-gonic/gin"
+)
+
+// 文件大小限制常量
+const (
+	maxUploadFileSize uint64 = 100 * 1024 * 1024
+	maxChunkSize      int64  = 10 * 1024 * 1024
 )
 
 // @securityDefinitions.apikey ApiKeyAuth
@@ -21,15 +32,15 @@ import (
 // @name Authorization
 
 type FileHandler struct {
-	FileService service.FileService
-	AuthService service.AuthService
+    FileService service.FileService
+    AuthService service.AuthService
 }
 
 func NewFileHandler(fileService service.FileService, authService service.AuthService) *FileHandler {
-	return &FileHandler{
-		FileService: fileService,
-		AuthService: authService,
-	}
+    return &FileHandler{
+        FileService: fileService,
+        AuthService: authService,
+    }
 }
 
 func (h *FileHandler) Register(r *gin.RouterGroup) {
@@ -85,7 +96,6 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 		response.Fail(c, response.CodeInvalidParam)
 		return
 	}
-	// 从上下文获取用户ID
 	userID, ok := getCurrentUserID(c)
 	if !ok {
 		response.Fail(c, response.CodeUnauthorized)
@@ -96,6 +106,17 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 		response.Fail(c, response.CodeServerError)
 		return
 	}
+
+	if strings.Contains(req.FileHash, "..") || strings.Contains(req.FileHash, "/") || strings.Contains(req.FileHash, "\\") {
+		response.FailWithMsg(c, response.CodeInvalidParam, "无效的文件哈希")
+		return
+	}
+
+	if req.FileSize > maxUploadFileSize {
+		response.FailWithMsg(c, response.CodeInvalidParam, "文件大小超过限制")
+		return
+	}
+
 	task := &model.UploadTask{
 		FileName:       req.FileName,
 		FileSize:       uint64(req.FileSize),
@@ -132,27 +153,28 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 func (h *FileHandler) UploadFileChunk(c *gin.Context) {
 	var req dto.UploadChunkReq
 
-	// 1. 绑定普通字段（form）
 	if err := c.ShouldBind(&req); err != nil {
 		response.Fail(c, response.CodeInvalidParam)
 		return
 	}
 
-	// 2. 获取用户
 	userID, ok := getCurrentUserID(c)
 	if !ok {
 		response.Fail(c, response.CodeUnauthorized)
 		return
 	}
 
-	// 3. 获取文件 chunk_data（form-data）
 	file, err := c.FormFile("chunk_data")
 	if err != nil {
 		response.Fail(c, response.CodeInvalidParam)
 		return
 	}
 
-	// 4. 打开文件流
+	if file.Size > maxChunkSize {
+		response.FailWithMsg(c, response.CodeInvalidParam, "分片大小超过限制")
+		return
+	}
+
 	src, err := file.Open()
 	if err != nil {
 		response.Fail(c, response.CodeServerError)
@@ -160,8 +182,35 @@ func (h *FileHandler) UploadFileChunk(c *gin.Context) {
 	}
 	defer src.Close()
 
-	// 5. 交给 service（传 io.Reader，而不是 base64）
-	if err := h.FileService.UploadFileChunkStream(userID, &req, src); err != nil {
+	limitedReader := io.LimitReader(src, maxChunkSize+1)
+	buf := make([]byte, 512)
+	n, err := limitedReader.Read(buf)
+	if err != nil && err != io.EOF {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+
+	detectedMIME := http.DetectContentType(buf[:n])
+	if !h.FileService.IsAllowedMIMEType(detectedMIME) {
+		response.FailWithMsg(c, response.CodeInvalidParam, "不支持的文件类型")
+		return
+	}
+
+	remainingData, err := io.ReadAll(limitedReader)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+
+	if int64(len(remainingData)) > maxChunkSize-int64(n) {
+		response.FailWithMsg(c, response.CodeInvalidParam, "分片大小超过限制")
+		return
+	}
+
+	fullData := append(buf[:n], remainingData...)
+	reader := bytes.NewReader(fullData)
+
+	if err := h.FileService.UploadFileChunkStream(userID, &req, reader, int64(len(fullData))); err != nil {
 		response.Fail(c, response.CodeServerError)
 		return
 	}
@@ -308,7 +357,15 @@ func (h *FileHandler) PreviewFileByID(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 	}
 	if err := h.FileService.PreviewFileByID(req.FileID, userID, c.Writer, setMeta); err != nil {
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 }
@@ -348,11 +405,19 @@ func (h *FileHandler) DownloadFileByID(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 	}
 	if err := h.FileService.DownloadByIDs(userID, req.FileID, req.FolderID, c.Writer, setMeta); err != nil {
-		if errors.Is(err, service.ErrPickupEmptyFolder) {
-			response.FailWithMsg(c, response.CodeNotFound, "文件夹为空")
+		if errors.Is(err, errors.ErrPickupEmptyFolder) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件夹为空")
 			return
 		}
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 }
@@ -370,7 +435,15 @@ func (h *FileHandler) CreatePublicShareLink(c *gin.Context) {
 	}
 	token, err := h.FileService.CreatePublicShareLink(req.FileID, userID)
 	if err != nil {
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 	shareURL := buildPublicShareURL(c, token)
@@ -393,7 +466,7 @@ func (h *FileHandler) GetPublicShareLink(c *gin.Context) {
 	}
 	token, err := h.FileService.GetPublicShareLink(req.FileID, userID)
 	if err != nil {
-		if errors.Is(err, service.ErrPublicShareNotFound) {
+		if errors.Is(err, errors.ErrPublicShareNotFound) {
 			response.Success(c, gin.H{
 				"exists": false,
 				"token":  "",
@@ -401,7 +474,15 @@ func (h *FileHandler) GetPublicShareLink(c *gin.Context) {
 			})
 			return
 		}
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 	response.Success(c, gin.H{
@@ -423,11 +504,19 @@ func (h *FileHandler) DeletePublicShareLink(c *gin.Context) {
 		return
 	}
 	if err := h.FileService.DeletePublicShareLink(req.FileID, userID); err != nil {
-		if errors.Is(err, service.ErrPublicShareNotFound) {
-			response.FailWithMsg(c, response.CodeNotFound, "分享链接不存在")
+		if errors.Is(err, errors.ErrPublicShareNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "分享链接不存在")
 			return
 		}
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 	response.Success(c, nil)
@@ -461,11 +550,11 @@ func (h *FileHandler) OpenPublicShare(c *gin.Context) {
 		c.Header("Cache-Control", "public, max-age=300")
 	}
 	if err := h.FileService.OpenPublicShare(req.Token, c.Writer, setMeta); err != nil {
-		if errors.Is(err, service.ErrPublicShareNotFound) {
-			response.FailWithMsg(c, response.CodeNotFound, "分享链接不存在或文件已删除")
+		if errors.Is(err, errors.ErrPublicShareNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "分享链接不存在或文件已删除")
 			return
 		}
-		response.Fail(c, response.CodeServerError)
+		response.FailWithStatus(c, http.StatusInternalServerError, response.CodeServerError, "服务器错误")
 		return
 	}
 }
@@ -521,7 +610,15 @@ func (h *FileHandler) RenameFileByID(c *gin.Context) {
 		return
 	}
 	if err := h.FileService.RenameByIDs(userID, req.FileID, req.FolderID, name); err != nil {
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) || errors.Is(err, errors.ErrFolderNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 	response.Success(c, nil)
@@ -554,7 +651,15 @@ func (h *FileHandler) MoveFileByID(c *gin.Context) {
 		return
 	}
 	if err := h.FileService.MoveByIDs(userID, req.FileID, req.FolderID, req.TargetFolderID); err != nil {
-		response.FailWithMsg(c, response.CodeInvalidParam, "移动失败：目标目录无效或无权限")
+		if errors.Is(err, errors.ErrFolderNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "目标目录不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, "移动失败：目标目录无效")
 		return
 	}
 	response.Success(c, nil)
@@ -587,7 +692,15 @@ func (h *FileHandler) DeleteFileByID(c *gin.Context) {
 		return
 	}
 	if err := h.FileService.DeleteByIDs(userID, req.FileID, req.FolderID); err != nil {
-		response.FailWithMsg(c, response.CodeNotFound, "文件不存在或无权访问")
+		if errors.Is(err, errors.ErrFileNotFound) || errors.Is(err, errors.ErrFolderNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
+			return
+		}
+		if errors.Is(err, errors.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在或无权访问")
 		return
 	}
 	response.Success(c, nil)
@@ -712,7 +825,15 @@ func (h *FileHandler) DeletePickUpCodeByID(c *gin.Context) {
 		return
 	}
 	if err := h.FileService.DeletePickUpCodeByID(userID, req.ID); err != nil {
-		response.FailWithMsg(c, response.CodeNotFound, "取件码不存在或无权访问")
+		if errors.Is(err, service.ErrPickupTargetNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "取件码不存在")
+			return
+		}
+		if errors.Is(err, service.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "取件码不存在或无权访问")
 		return
 	}
 	response.Success(c, nil)
@@ -753,7 +874,11 @@ func (h *FileHandler) DownloadByPickUpCode(c *gin.Context) {
 			response.FailWithMsg(c, response.CodeNotFound, "文件夹为空")
 			return
 		}
-		response.Fail(c, response.CodeServerError)
+		if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
+			response.FailWithMsg(c, response.CodeNotFound, "文件不存在或已被删除")
+			return
+		}
+		response.FailWithMsg(c, response.CodeServerError, err.Error())
 		return
 	}
 }

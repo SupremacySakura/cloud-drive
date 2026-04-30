@@ -1,17 +1,19 @@
 package repository
 
 import (
-	"cloud-drive-backend/internal/dto"
-	"cloud-drive-backend/internal/model"
-	"errors"
-	"time"
+    "cloud-drive-backend/internal/dto"
+    "cloud-drive-backend/internal/model"
+    "errors"
+    "os"
+    "strconv"
+    "time"
 
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+    "gorm.io/gorm"
+    "gorm.io/gorm/clause"
 )
 
 type FileRepository struct {
-	DB *gorm.DB
+    DB *gorm.DB
 }
 
 func NewFileRepository(db *gorm.DB) *FileRepository {
@@ -481,4 +483,59 @@ func (r *FileRepository) IncrementDownloadAndMaybeExpire(codeID uint, now time.T
 		}
 		return tx.Save(&code).Error
 	})
+}
+
+// DeleteExpiredChunks 删除已过期但未完成的上传分片及其任务记录
+// 过期时间通过 expiration 指定，例如 24h。
+// chunkRootPath 为分片文件根目录的路径，形如 <chunk_root>/<task_id>/
+func (r *FileRepository) DeleteExpiredChunks(expiration time.Duration, chunkRootPath string) error {
+    cutoff := time.Now().Add(-expiration)
+    // 找出已创建且未完成且创建时间早于 cutoff 的任务
+    var tasks []model.UploadTask
+    if err := r.DB.Where("status != ? AND created_at <= ?", model.UploadStatusCompleted, cutoff).Find(&tasks).Error; err != nil {
+        return err
+    }
+
+    // 删除分片文件目录及对应的任务记录
+    var toDeleteIDs []uint
+    for _, t := range tasks {
+        toDeleteIDs = append(toDeleteIDs, t.ID)
+        // 构造分片目录路径
+        dir := chunkRootPath
+        if dir != "" {
+            dir = dir + "/" + strconv.FormatUint(uint64(t.ID), 10)
+            // 方便清理，尝试删除分片目录（忽略错误，继续删除其他）
+            _ = os.RemoveAll(dir)
+        }
+    }
+
+    if len(toDeleteIDs) > 0 {
+        // 删除数据库中的对应记录
+        if err := r.DB.Where("id IN ?", toDeleteIDs).Delete(&model.UploadTask{}).Error; err != nil {
+            return err
+        }
+    }
+    return nil
+}
+
+func (r *FileRepository) GetFilesByIDs(ids []uint) ([]model.FileModel, error) {
+	if len(ids) == 0 {
+		return []model.FileModel{}, nil
+	}
+	var files []model.FileModel
+	if err := r.DB.Where("id IN ?", ids).Find(&files).Error; err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (r *FileRepository) GetFoldersByIDs(ids []uint) ([]model.FolderModel, error) {
+	if len(ids) == 0 {
+		return []model.FolderModel{}, nil
+	}
+	var folders []model.FolderModel
+	if err := r.DB.Where("id IN ?", ids).Find(&folders).Error; err != nil {
+		return nil, err
+	}
+	return folders, nil
 }

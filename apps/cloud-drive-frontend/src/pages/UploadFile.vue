@@ -81,9 +81,9 @@ const loadFolderPickerFolders = async (folderId: number) => {
     folderPickerFolders.value = list
       .filter(item => item.type === 'folder')
       .map(item => ({ id: item.id, name: item.name }))
-  } catch (e: any) {
+  } catch (error: unknown) {
     folderPickerFolders.value = []
-    folderPickerErrorMessage.value = e?.message || '加载目录失败'
+    folderPickerErrorMessage.value = error instanceof Error ? error.message : '加载目录失败'
   } finally {
     isFolderPickerLoading.value = false
   }
@@ -187,10 +187,10 @@ const startUpload = async (item: QueueItem) => {
     item.status = 'success'
     item.percent = 100
     item.message = '上传完成'
-  } catch (e: any) {
+  } catch (error: unknown) {
     if (item.canceled) return
     item.status = 'failed'
-    item.message = e?.message || '上传失败'
+    item.message = error instanceof Error ? error.message : '上传失败'
   }
 }
 
@@ -230,8 +230,9 @@ const badgeClass = (item: QueueItem) => {
               </p>
             </div>
             <button
-              class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-primary/30 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
+              class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-primary/30 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/10 transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="选择上传目录"
               @click="openFolderPicker"
             >
               <Icon icon="material-symbols:folder-open-outline" />
@@ -265,8 +266,9 @@ const badgeClass = (item: QueueItem) => {
               支持图片、视频、文档与压缩包等常见格式。
             </p>
             <button
-              class="bg-white dark:bg-slate-800 border border-primary/30 text-primary font-bold px-8 py-2.5 rounded-lg hover:bg-primary hover:text-white transition-all shadow-sm"
+              class="bg-white dark:bg-slate-800 border border-primary/30 text-primary font-bold px-8 py-2.5 rounded-lg hover:bg-primary hover:text-white transition-all shadow-sm focus:ring-2 focus:ring-primary/30 focus:outline-none"
               type="button"
+              aria-label="选择文件"
             >
               选择文件
             </button>
@@ -290,8 +292,9 @@ const badgeClass = (item: QueueItem) => {
                 <template v-for="(bc, idx) in folderPickerBreadcrumbs" :key="`${bc.id}-${idx}`">
                   <button
                     v-if="idx < folderPickerBreadcrumbs.length - 1"
-                    class="whitespace-nowrap hover:text-primary"
+                    class="whitespace-nowrap hover:text-primary focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
                     type="button"
+                    :aria-label="`导航到 ${bc.name}`"
                     @click="goToFolderPickerBreadcrumb(idx)"
                   >
                     {{ bc.name }}
@@ -310,8 +313,9 @@ const badgeClass = (item: QueueItem) => {
                 </template>
               </nav>
               <button
-                class="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
+                class="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
+                aria-label="选择当前目录"
                 @click="selectCurrentFolderForUpload"
               >
                 选择当前目录
@@ -331,8 +335,9 @@ const badgeClass = (item: QueueItem) => {
                 <button
                   v-for="folder in folderPickerFolders"
                   :key="folder.id"
-                  class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900"
+                  class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  :aria-label="`打开文件夹 ${folder.name}`"
                   @click="goToFolderPickerFolder(folder)"
                 >
                   <span class="flex min-w-0 items-center gap-2">
@@ -358,15 +363,17 @@ const badgeClass = (item: QueueItem) => {
 
             <div class="mt-4 flex justify-end gap-3">
               <button
-                class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"
+                class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900 focus:ring-2 focus:ring-slate-400 focus:outline-none"
                 type="button"
+                aria-label="取消选择"
                 @click="closeFolderPicker"
               >
                 取消
               </button>
               <button
-                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 focus:ring-2 focus:ring-primary/50 focus:outline-none"
                 type="button"
+                aria-label="确认选择当前目录"
                 @click="selectCurrentFolderForUpload"
               >
                 确认
@@ -381,8 +388,9 @@ const badgeClass = (item: QueueItem) => {
             <div class="flex items-center gap-4">
               <span class="text-sm text-slate-500">{{ processingCount }} 项处理中</span>
               <button
-                class="text-sm font-bold text-primary hover:underline"
+                class="text-sm font-bold text-primary hover:underline focus:ring-2 focus:ring-primary/30 focus:outline-none rounded px-1"
                 type="button"
+                aria-label="清理已完成的上传任务"
                 @click="clearCompleted"
               >
                 清理已完成
@@ -442,15 +450,20 @@ const badgeClass = (item: QueueItem) => {
               <div class="ml-6 flex items-center gap-2">
                 <button
                   v-if="item.status === 'failed'"
-                  class="flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3 py-1.5 rounded-lg text-xs transition-colors"
+                  class="flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3 py-1.5 rounded-lg text-xs transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
+                  aria-label="重试上传"
                   @click="retryItem(item)"
                 >
                   <Icon class="text-sm" icon="material-symbols:replay" />
                   重试
                 </button>
 
-                <div v-if="item.status === 'success'" class="p-2 text-primary">
+                <div
+                  v-if="item.status === 'success'"
+                  class="p-2 text-primary"
+                  aria-label="上传成功"
+                >
                   <Icon class="text-xl" icon="material-symbols:check-circle" />
                 </div>
 
@@ -460,8 +473,9 @@ const badgeClass = (item: QueueItem) => {
                     item.status === 'hashing' ||
                     item.status === 'merging'
                   "
-                  class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                  class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors focus:ring-2 focus:ring-red-400 focus:outline-none"
                   type="button"
+                  aria-label="取消上传"
                   @click="cancelItem(item)"
                 >
                   <Icon class="text-xl" icon="material-symbols:close" />
@@ -469,8 +483,9 @@ const badgeClass = (item: QueueItem) => {
 
                 <button
                   v-else
-                  class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                  class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors focus:ring-2 focus:ring-red-400 focus:outline-none"
                   type="button"
+                  aria-label="移除任务"
                   @click="removeItem(item.id)"
                 >
                   <Icon class="text-xl" icon="material-symbols:close" />

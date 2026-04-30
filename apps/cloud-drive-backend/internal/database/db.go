@@ -1,9 +1,10 @@
 package database
 
 import (
-	"fmt"
-	"log"
-	"os"
+	"time"
+
+	"cloud-drive-backend/internal/config"
+	"cloud-drive-backend/internal/log"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -11,31 +12,25 @@ import (
 
 var DB *gorm.DB
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func InitDB() {
-	dbUser := getEnvOrDefault("DB_USER", "root")
-	dbPassword := getEnvOrDefault("DB_PASSWORD", "123456123456")
-	dbHost := getEnvOrDefault("DB_HOST", "127.0.0.1")
-	dbPort := getEnvOrDefault("DB_PORT", "3306")
-	dbName := getEnvOrDefault("DB_NAME", "cloud-drive")
-
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		dbUser, dbPassword, dbHost, dbPort, dbName)
+func InitDB(cfg *config.Config) {
+	dsn := cfg.GetDSN()
 
 	var err error
 	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("数据库连接失败： %v", err)
+		log.Fatal().Err(err).Msg("数据库连接失败")
 	}
-	log.Println("数据库连接成功")
+	log.Info().Msg("数据库连接成功")
+    // 配置连接池参数
+    if sqlDB, err := DB.DB(); err == nil {
+        sqlDB.SetMaxOpenConns(100)
+        sqlDB.SetMaxIdleConns(10)
+        sqlDB.SetConnMaxLifetime(time.Hour)
+	} else {
+		log.Warn().Err(err).Msg("无法获取底层数据库对象以设置连接池")
+	}
 	if err := Migrate(); err != nil {
-		log.Fatalf("数据库迁移失败： %v", err)
+		log.Fatal().Err(err).Msg("数据库迁移失败")
 	}
-	log.Println("数据库迁移成功")
+	log.Info().Msg("数据库迁移成功")
 }

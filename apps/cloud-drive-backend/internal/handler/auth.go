@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"net/http"
+
 	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/middleware"
 	"cloud-drive-backend/internal/model"
@@ -8,6 +10,7 @@ import (
 	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/utils"
 	"cloud-drive-backend/internal/vo"
+	apperrors "cloud-drive-backend/internal/errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,13 +45,13 @@ func (h *AuthHandler) RegisterUser(c *gin.Context) {
 	var req dto.RegisterUserReq
 	// 绑定 JSON 请求体到 req 结构体
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, response.CodeInvalidParam)
+		response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, "参数错误")
 		return
 	}
 	// 密码哈希
 	hashPassword, err := utils.HashPassword(req.Password)
 	if err != nil {
-		response.Fail(c, response.CodeInvalidParam)
+		response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, "密码处理失败")
 		return
 	}
 	// 创建新用户
@@ -84,13 +87,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var req dto.LoginReq
 	// 绑定 JSON 请求体到 req 结构体
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, response.CodeInvalidParam)
+		response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, "参数错误")
 		return
 	}
 	// 验证用户
 	user, err := h.AuthService.ValidateUser(req.Username, req.Password)
 	if err != nil {
-		response.FailWithMsg(c, response.CodeInvalidParam, err.Error())
+		// 根据错误类型返回不同的状态码
+		if apperrors.Is(err, apperrors.ErrUserNotFound) || apperrors.Is(err, apperrors.ErrInvalidPassword) {
+			response.FailWithStatus(c, http.StatusUnauthorized, response.CodeUnauthorized, "用户名或密码错误")
+			return
+		}
+		response.FailWithStatus(c, http.StatusUnauthorized, response.CodeUnauthorized, err.Error())
 		return
 	}
 	// 生成 JWT 令牌

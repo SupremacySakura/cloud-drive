@@ -164,11 +164,13 @@ const handleRetrieve = async () => {
                 v-for="(_, index) in codeDigits"
                 :key="index"
                 :ref="el => setInputRef(el as HTMLInputElement | null, index)"
-                class="w-full aspect-square text-center text-2xl font-bold rounded-lg border-2 border-slate-200 dark:border-slate-700 bg-transparent focus:border-primary focus:ring-0 transition-all uppercase"
+                :aria-label="`取件码第${index + 1}位`"
+                class="w-full aspect-square text-center text-2xl font-bold rounded-lg border-2 border-slate-200 dark:border-slate-700 bg-transparent focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all uppercase"
                 maxlength="1"
                 inputmode="text"
                 placeholder="·"
                 type="text"
+                :autofocus="index === 0"
                 :value="codeDigits[index]"
                 @input="handleInput(index, $event)"
                 @keydown="handleKeydown(index, $event)"
@@ -176,7 +178,8 @@ const handleRetrieve = async () => {
               />
             </div>
             <button
-              class="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold h-14 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary/20"
+              aria-label="提取文件"
+              class="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold h-14 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary/20 focus:ring-2 focus:ring-primary/50 focus:outline-none"
               :disabled="!canSubmit"
               @click="handleRetrieve"
             >
@@ -231,7 +234,8 @@ const handleRetrieve = async () => {
               </p>
             </div>
             <button
-              class="w-full sm:w-auto px-6 h-12 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-lg font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform"
+              aria-label="重新下载文件"
+              class="w-full sm:w-auto px-6 h-12 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-lg font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform focus:ring-2 focus:ring-slate-400 focus:outline-none"
               @click="handleRetrieve"
             >
               <span class="material-symbols-outlined text-xl">download</span>

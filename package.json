@@ -11,7 +11,8 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx}\"",
     "clean": "tsc -b --clean",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "pnpm --filter cloud-drive-frontend test"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

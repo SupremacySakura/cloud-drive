@@ -6,7 +6,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-STAGED_ENV_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.env($|\.)' || true)
+STAGED_ENV_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.env($|\.)' | grep -v '\.env\.example$' || true)
 
 if [ -z "$STAGED_ENV_FILES" ]; then
   exit 0

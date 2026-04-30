@@ -1,0 +1,12 @@
+Task 8: 前端核心模块测试
+
+测试结果: 59 tests passed (4 test files)
+
+测试文件:
+1. src/stores/__tests__/user.test.ts - 8 tests (token存储、登出、isLoggedIn)
+2. src/services/__tests__/request.test.ts - 9 tests (拦截器、401处理、超时配置)
+3. src/utils/__tests__/file.test.ts - 38 tests (iconForFile、detectFileType、formatTime等)
+4. src/utils/__tests__/format.test.ts - 4 tests (formatBytes)
+
+验证时间: Thu Apr 30 16:27:23 CST 2026
+

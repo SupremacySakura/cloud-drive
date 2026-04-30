@@ -9,3 +9,15 @@ data/*
 .playwright-mcp/*
 .env
 .sisyphus/evidence/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor swap files
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/

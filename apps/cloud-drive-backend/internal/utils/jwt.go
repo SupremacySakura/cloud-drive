@@ -1,21 +1,18 @@
 package utils
 
 import (
-	"os"
-	"time"
+    "time"
 
-	"github.com/golang-jwt/jwt/v5"
+    "cloud-drive-backend/internal/config"
+
+    "github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte(getJWTSecret())
+var jwtKey []byte
 
-func getJWTSecret() string {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		// 开发环境使用默认值，但会输出警告
-		return "your_secret_key"
-	}
-	return secret
+// InitJWT 初始化 JWT 密钥，应在应用启动时调用
+func InitJWT(cfg *config.Config) {
+    jwtKey = []byte(cfg.JWTSecret)
 }
 
 type Claims struct {

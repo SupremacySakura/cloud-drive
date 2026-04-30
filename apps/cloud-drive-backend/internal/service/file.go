@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"os"
@@ -31,7 +32,36 @@ var (
 	ErrPublicShareNotFound  = errors.New("public share not found")
 	ErrInvalidFileName      = errors.New("invalid file name")
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	ErrChunkSizeMismatch    = errors.New("chunk size mismatch")
+	ErrInvalidMIMEType      = errors.New("invalid mime type")
+	// 新增错误类型，用于HTTP状态码映射
+	ErrFileNotFound     = errors.New("file not found")
+	ErrFolderNotFound   = errors.New("folder not found")
+	ErrPermissionDenied = errors.New("permission denied")
 )
+
+var allowedMIMETypes = map[string]bool{
+	"image/":        true,
+	"video/":        true,
+	"application/pdf": true,
+	"application/zip": true,
+	"text/":         true,
+}
+
+func (s *fileService) IsAllowedMIMEType(mimeType string) bool {
+	if mimeType == "" {
+		return false
+	}
+	if allowedMIMETypes[mimeType] {
+		return true
+	}
+	for prefix := range allowedMIMETypes {
+		if strings.HasSuffix(prefix, "/") && strings.HasPrefix(mimeType, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 var reservedNames = map[string]bool{
 	"CON": true, "PRN": true, "AUX": true, "NUL": true,
@@ -126,29 +156,33 @@ type FileServiceOptions struct {
 	FileStoragePath  string
 }
 
+// FileService 定义文件服务的对外接口（用于 DI/替换实现）
 type FileService interface {
-	InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
-	UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader) error
-	MergeUploadedChunks(userID uint, taskID uint) error
-	GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
-	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
-	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
-	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
-	RenameByIDs(userID uint, fileID, folderID uint, name string) error
-	MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
-	DeleteByIDs(userID uint, fileID, folderID uint) error
-	CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
-	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
-	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
-	DeletePickUpCodeByID(userID uint, codeID uint) error
-	CreatePublicShareLink(fileID uint, userID uint) (string, error)
-	GetPublicShareLink(fileID uint, userID uint) (string, error)
-	DeletePublicShareLink(fileID uint, userID uint) error
-	OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
-	PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-	DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-	DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
+    InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
+    UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
+    IsAllowedMIMEType(mimeType string) bool
+    MergeUploadedChunks(userID uint, taskID uint) error
+    GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
+    GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
+    GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
+    MakeDirectory(folderID uint, name string, userID uint) (uint, error)
+    RenameByIDs(userID uint, fileID, folderID uint, name string) error
+    MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
+    DeleteByIDs(userID uint, fileID, folderID uint) error
+    CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
+    GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
+    GetPickUpCodeListCountByUserID(userID uint) (int64, error)
+    DeletePickUpCodeByID(userID uint, codeID uint) error
+    CreatePublicShareLink(fileID uint, userID uint) (string, error)
+    GetPublicShareLink(fileID uint, userID uint) (string, error)
+    DeletePublicShareLink(fileID uint, userID uint) error
+    OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
+    PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+    DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+    DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
+
+// FileService 为对外暴露的接口，保持与原有实现一致
 
 type fileService struct {
 	FileRepository *repository.FileRepository
@@ -178,10 +212,10 @@ func (s *fileService) ensureStorageQuota(userID uint, additionalSize uint64) err
 }
 
 func NewFileService(fileRepository *repository.FileRepository, options FileServiceOptions) FileService {
-	return &fileService{
-		FileRepository:     fileRepository,
-		FileServiceOptions: options,
-	}
+    return &fileService{
+        FileRepository:     fileRepository,
+        FileServiceOptions: options,
+    }
 }
 
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
@@ -304,13 +338,22 @@ func (s *fileService) createInstantTransferTask(req *model.UploadTask, existingT
 	return task, nil
 }
 
-func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq, reader io.Reader) error {
+func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
 	return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
 		var task model.UploadTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND user_id = ?", req.TaskID, userID).
 			First(&task).Error; err != nil {
 			return err
+		}
+
+		expectedChunkSize := int64(task.ChunkSize)
+		if req.ChunkIndex == task.TotalChunks-1 {
+			expectedChunkSize = int64(task.FileSize) - int64(req.ChunkIndex)*int64(task.ChunkSize)
+		}
+
+		if chunkSize > expectedChunkSize {
+			return ErrChunkSizeMismatch
 		}
 
 		chunkDir := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10)
@@ -326,12 +369,17 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return err
 		}
 
-		if _, err := io.Copy(dst, reader); err != nil {
+		written, err := io.Copy(dst, reader)
+		if err != nil {
 			dst.Close()
 			return err
 		}
-
 		dst.Close()
+
+		if written != chunkSize {
+			os.Remove(tmpPath)
+			return ErrChunkSizeMismatch
+		}
 
 		if err := os.Rename(tmpPath, chunkPath); err != nil {
 			return err
@@ -365,6 +413,19 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	}
 	if len(task.FileHash) < 4 {
 		return errors.New("invalid file hash")
+	}
+
+	var totalChunkSize int64
+	for i := 0; i < task.TotalChunks; i++ {
+		chunkPath := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10) + "/" + strconv.Itoa(i)
+		info, err := os.Stat(chunkPath)
+		if err != nil {
+			return errors.New("chunk file not found")
+		}
+		totalChunkSize += info.Size()
+	}
+	if uint64(totalChunkSize) != task.FileSize {
+		return ErrChunkSizeMismatch
 	}
 
 	if err := s.ensureStorageQuota(userID, task.FileSize); err != nil {
@@ -402,23 +463,28 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	if !ok {
 		return errors.New("merged file hash mismatch")
 	}
-	task.Status = model.UploadStatusCompleted
-	err = s.FileRepository.UpdateUploadTask(task)
-	if err != nil {
-		return err
-	}
-	fileModel := &model.FileModel{
-		UserID:   task.UserID,
-		FolderID: task.FolderID,
-		Name:     task.FileName,
-		Size:     task.FileSize,
-		Type:     task.FileType,
-		FileHash: task.FileHash,
-	}
-	err = s.FileRepository.Create(fileModel)
-	if err != nil {
-		return err
-	}
+    // 使用事务确保数据库操作原子性
+    err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+        task.Status = model.UploadStatusCompleted
+        if err := tx.Save(task).Error; err != nil {
+            return err
+        }
+        fileModel := &model.FileModel{
+            UserID:   task.UserID,
+            FolderID: task.FolderID,
+            Name:     task.FileName,
+            Size:     task.FileSize,
+            Type:     task.FileType,
+            FileHash: task.FileHash,
+        }
+        if err := tx.Create(fileModel).Error; err != nil {
+            return err
+        }
+        return nil
+    })
+    if err != nil {
+        return err
+    }
 	return nil
 }
 
@@ -495,7 +561,7 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 }
 
 func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
-	cleanedName, err := sanitizeFileName(name)
+    cleanedName, err := utils.SanitizeFileName(name)
 	if err != nil {
 		return 0, err
 	}
@@ -504,9 +570,9 @@ func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (ui
 }
 
 func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name string) error {
-	cleanedName, err := sanitizeFileName(name)
+    cleanedName, err := utils.SanitizeFileName(name)
 	if err != nil {
-		return err
+		return fmt.Errorf("文件名无效: %w", err)
 	}
 	if fileID > 0 && folderID > 0 {
 		return errors.New("invalid rename target")
@@ -515,9 +581,23 @@ func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name strin
 		return errors.New("missing rename target")
 	}
 	if fileID > 0 {
-		return s.FileRepository.RenameFileByIDAndUserID(fileID, userID, cleanedName)
+		err = s.FileRepository.RenameFileByIDAndUserID(fileID, userID, cleanedName)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("重命名文件失败: %w", err)
+		}
+		return nil
 	}
-	return s.FileRepository.RenameFolderByIDAndUserID(folderID, userID, cleanedName)
+	err = s.FileRepository.RenameFolderByIDAndUserID(folderID, userID, cleanedName)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderNotFound
+		}
+		return fmt.Errorf("重命名文件夹失败: %w", err)
+	}
+	return nil
 }
 
 func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error {
@@ -530,17 +610,30 @@ func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID ui
 
 	if targetFolderID > 0 {
 		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(targetFolderID, userID); err != nil {
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFolderNotFound
+			}
+			return fmt.Errorf("移动失败: %w", err)
 		}
 	}
 
 	if fileID > 0 {
-		return s.FileRepository.MoveFileByIDAndUserID(fileID, userID, targetFolderID)
+		err := s.FileRepository.MoveFileByIDAndUserID(fileID, userID, targetFolderID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("移动文件失败: %w", err)
+		}
+		return nil
 	}
 
 	sourceFolder, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderNotFound
+		}
+		return fmt.Errorf("移动文件夹失败: %w", err)
 	}
 	if sourceFolder.ID == targetFolderID {
 		return errors.New("cannot move folder into itself")
@@ -554,12 +647,22 @@ func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID ui
 		}
 		parent, err := s.FileRepository.GetFolderByFolderIDAndUserID(current, userID)
 		if err != nil {
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFolderNotFound
+			}
+			return fmt.Errorf("移动文件夹失败: %w", err)
 		}
 		current = parent.ParentID
 	}
 
-	return s.FileRepository.MoveFolderByIDAndUserID(folderID, userID, targetFolderID)
+	err = s.FileRepository.MoveFolderByIDAndUserID(folderID, userID, targetFolderID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderNotFound
+		}
+		return fmt.Errorf("移动文件夹失败: %w", err)
+	}
+	return nil
 }
 
 func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
@@ -571,7 +674,14 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 	}
 
 	if fileID > 0 {
-		return s.FileRepository.DeleteFileByIDAndUserID(fileID, userID)
+		err := s.FileRepository.DeleteFileByIDAndUserID(fileID, userID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("删除文件失败: %w", err)
+		}
+		return nil
 	}
 
 	return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
@@ -579,7 +689,10 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 
 		rootFolder, err := txRepo.GetFolderByFolderIDAndUserID(folderID, userID)
 		if err != nil {
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFolderNotFound
+			}
+			return fmt.Errorf("删除文件夹失败: %w", err)
 		}
 		folderIDs := []uint{rootFolder.ID}
 		queue := []uint{rootFolder.ID}
@@ -588,7 +701,7 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 			queue = queue[1:]
 			children, err := txRepo.GetDirectChildFoldersByParentAndUserID(current, userID)
 			if err != nil {
-				return err
+				return fmt.Errorf("删除文件夹失败: %w", err)
 			}
 			for _, child := range children {
 				folderIDs = append(folderIDs, child.ID)
@@ -597,7 +710,7 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 		}
 
 		if err := txRepo.DeleteFilesByFolderIDsAndUserID(folderIDs, userID); err != nil {
-			return err
+			return fmt.Errorf("删除文件失败: %w", err)
 		}
 		return txRepo.DeleteFoldersByIDsAndUserID(folderIDs, userID)
 	})
@@ -609,41 +722,73 @@ func (s *fileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error
 }
 
 func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
-	list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
-	if err != nil {
-		return nil, err
-	}
-	var voList []vo.PickUpCodeListItem
-	for _, item := range list {
-		var name string
-		if item.Type == model.PickUpTargetTypeFile {
-			file, err := s.FileRepository.GetFileByFileIDAndUserID(*item.FileID, userID)
-			if err != nil {
-				continue
-			}
-			name = file.Name
-		} else {
-			folder, err := s.FileRepository.GetFolderByFolderIDAndUserID(*item.FolderID, userID)
-			if err != nil {
-				continue
-			}
-			name = folder.Name
-		}
-		voList = append(voList, vo.PickUpCodeListItem{
-			ID:          item.ID,
-			Code:        item.Code,
-			FileID:      item.FileID,
-			FolderID:    item.FolderID,
-			Name:        name,
-			Type:        item.Type,
-			Download:    int(item.Download),
-			MaxDownload: int(item.MaxDownload),
-			ExpireTime:  item.ExpireTime,
-			CreatedAt:   item.CreatedAt,
-			Status:      item.Status,
-		})
-	}
-	return voList, nil
+    // 先获取分页的 pickup 码列表
+    list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
+    if err != nil {
+        return nil, err
+    }
+
+    // 批量聚合名称：先收集需要的 FileID / FolderID
+    var fileIDs []uint
+    var folderIDs []uint
+    for _, item := range list {
+        if item.FileID != nil {
+            fileIDs = append(fileIDs, *item.FileID)
+        }
+        if item.FolderID != nil {
+            folderIDs = append(folderIDs, *item.FolderID)
+        }
+    }
+
+    // 通过批量查询获得名称映射，避免 N+1 查询
+    fileMap := make(map[uint]string)
+    if len(fileIDs) > 0 {
+        files, err := s.FileRepository.GetFilesByIDs(fileIDs)
+        if err != nil {
+            return nil, err
+        }
+        for _, f := range files {
+            fileMap[f.ID] = f.Name
+        }
+    }
+    folderMap := make(map[uint]string)
+    if len(folderIDs) > 0 {
+        folders, err := s.FileRepository.GetFoldersByIDs(folderIDs)
+        if err != nil {
+            return nil, err
+        }
+        for _, fd := range folders {
+            folderMap[fd.ID] = fd.Name
+        }
+    }
+
+    var voList []vo.PickUpCodeListItem
+    for _, item := range list {
+        var name string
+        if item.FileID != nil {
+            if n, ok := fileMap[*item.FileID]; ok {
+                name = n
+            }
+        } else if item.FolderID != nil {
+            if n, ok := folderMap[*item.FolderID]; ok {
+                name = n
+            }
+        }
+        voList = append(voList, vo.PickUpCodeListItem{
+            ID:          item.ID,
+            Code:        item.Code,
+            FileID:      item.FileID,
+            FolderID:    item.FolderID,
+            Name:        name,
+            Type:        item.Type,
+            Download:    int(item.Download),
+            MaxDownload: int(item.MaxDownload),
+            ExpireTime:  item.ExpireTime,
+            CreatedAt:   item.CreatedAt,
+            Status:      item.Status,
+        })
+    }
+    return voList, nil
 }
 
 func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error) {
@@ -655,13 +800,23 @@ func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error)
 }
 
 func (s *fileService) DeletePickUpCodeByID(userID uint, codeID uint) error {
-	return s.FileRepository.DeletePickUpCodeByIDAndUserID(codeID, userID)
+	err := s.FileRepository.DeletePickUpCodeByIDAndUserID(codeID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPickupTargetNotFound
+		}
+		return fmt.Errorf("删除取件码失败: %w", err)
+	}
+	return nil
 }
 
 func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, error) {
 	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
-		return "", err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrFileNotFound
+		}
+		return "", fmt.Errorf("创建分享链接失败: %w", err)
 	}
 	existing, err := s.FileRepository.GetPublicShareLinkByFileIDAndUserID(fileID, userID)
 	if err == nil && existing != nil {
@@ -688,7 +843,10 @@ func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, e
 func (s *fileService) GetPublicShareLink(fileID uint, userID uint) (string, error) {
 	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
-		return "", err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrFileNotFound
+		}
+		return "", fmt.Errorf("获取分享链接失败: %w", err)
 	}
 	link, err := s.FileRepository.GetPublicShareLinkByFileIDAndUserID(fileID, userID)
 	if err != nil {
@@ -703,7 +861,10 @@ func (s *fileService) GetPublicShareLink(fileID uint, userID uint) (string, erro
 func (s *fileService) DeletePublicShareLink(fileID uint, userID uint) error {
 	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFileNotFound
+		}
+		return fmt.Errorf("删除分享链接失败: %w", err)
 	}
 	err = s.FileRepository.DeletePublicShareLinkByFileIDAndUserID(fileID, userID)
 	if err != nil {
@@ -747,7 +908,10 @@ func (s *fileService) OpenPublicShare(token string, writer io.Writer, setMeta fu
 func (s *fileService) PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
 	fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFileNotFound
+		}
+		return fmt.Errorf("预览文件失败: %w", err)
 	}
 	filePath, err := s.BuildFileAbsolutePath(fileModel)
 	if err != nil {
@@ -774,7 +938,10 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 	if fileID > 0 {
 		fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 		if err != nil {
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("下载文件失败: %w", err)
 		}
 		filePath, err := s.BuildFileAbsolutePath(fileModel)
 		if err != nil {
@@ -792,7 +959,10 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 
 	folderModel, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderNotFound
+		}
+		return fmt.Errorf("下载文件夹失败: %w", err)
 	}
 	if setMeta != nil {
 		setMeta(folderModel.Name+".zip", "application/zip")
@@ -930,13 +1100,13 @@ func (s *fileService) StreamFolderAsZip(folderID uint, writer io.Writer) error {
 	if err != nil {
 		return err
 	}
-	rootFolderName, err := sanitizeFileName(rootFolder.Name)
-	if err != nil {
-		return err
-	}
-	if err := validateZipEntryPath(rootFolderName); err != nil {
-		return err
-	}
+    rootFolderName, err := utils.SanitizeFileName(rootFolder.Name)
+    if err != nil {
+        return err
+    }
+    if err := utils.ValidateZipEntryPath(rootFolderName); err != nil {
+        return err
+    }
 	if err := s.writeFolderToZip(zipWriter, folderID, rootFolderName); err != nil {
 		_ = zipWriter.Close()
 		return err
@@ -962,16 +1132,16 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 		if err != nil {
 			return err
 		}
-		cleanedName, err := sanitizeFileName(fileModel.Name)
-		if err != nil {
-			src.Close()
-			return err
-		}
-		entryPath := path.Join(zipPrefix, cleanedName)
-		if err := validateZipEntryPath(entryPath); err != nil {
-			src.Close()
-			return err
-		}
+        cleanedName, err := utils.SanitizeFileName(fileModel.Name)
+        if err != nil {
+            src.Close()
+            return err
+        }
+        entryPath := path.Join(zipPrefix, cleanedName)
+        if err := utils.ValidateZipEntryPath(entryPath); err != nil {
+            src.Close()
+            return err
+        }
 		info, statErr := src.Stat()
 		if statErr != nil {
 			src.Close()
@@ -996,11 +1166,11 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 		src.Close()
 	}
 
-	for _, folder := range folders {
-		cleanedFolderName, err := sanitizeFileName(folder.Name)
-		if err != nil {
-			return err
-		}
+        for _, folder := range folders {
+        cleanedFolderName, err := utils.SanitizeFileName(folder.Name)
+        if err != nil {
+            return err
+        }
 		nextPrefix := path.Join(zipPrefix, cleanedFolderName)
 		if err := validateZipEntryPath(nextPrefix); err != nil {
 			return err

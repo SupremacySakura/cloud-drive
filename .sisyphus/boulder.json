@@ -1,105 +1,68 @@
 {
-  "active_plan": "/Users/shi/study/frontend/projects/cloud-drive/.sisyphus/plans/harness-ai-knowledge-system.md",
-  "started_at": "2026-04-30T06:09:50.853Z",
+  "active_plan": "/Users/shi/study/frontend/projects/cloud-drive/.sisyphus/plans/cloud-drive-optimization.md",
+  "started_at": "2026-04-30T07:55:38.264Z",
   "session_ids": [
-    "ses_223104dcdffebNCZekOnYQ4xFm",
-    "ses_222fc9cf1ffeQjWuZbFEQfPT73",
-    "ses_222fc4b35ffejbHpn2VaRjS77Z",
-    "ses_222fc1238ffeE4Yr6i792PiNkK",
-    "ses_222fbd0d9ffejuTZLsvJiy4nGQ",
-    "ses_222fb71c0ffeojeOFz1HLrtcsO",
-    "ses_222dd9ebbffeNr46E9uOjNT48U",
-    "ses_222dd602cffec0sLBbAKdKU56m",
-    "ses_222dd2fd1ffeMqL5Yqu34AhXlt",
-    "ses_222dcb277ffe7N88vLMaM5hHlE",
-    "ses_222dc763fffeMc6UcZ0OI3t07I",
-    "ses_222d4d38fffehnr4GZ2yggG0Bb",
-    "ses_222d4b675ffecpDxbFc6e9QjIj",
-    "ses_222d48880ffepT4pXF6lzDRdX4",
-    "ses_222d41c2cffep0K4IkJrJnfe3f"
+    "ses_222b9506affeLvM5mSQkhnndFx"
   ],
   "session_origins": {
-    "ses_223104dcdffebNCZekOnYQ4xFm": "direct",
-    "ses_222fc9cf1ffeQjWuZbFEQfPT73": "appended",
-    "ses_222fc4b35ffejbHpn2VaRjS77Z": "appended",
-    "ses_222fc1238ffeE4Yr6i792PiNkK": "appended",
-    "ses_222fbd0d9ffejuTZLsvJiy4nGQ": "appended",
-    "ses_222fb71c0ffeojeOFz1HLrtcsO": "appended",
-    "ses_222dd9ebbffeNr46E9uOjNT48U": "appended",
-    "ses_222dd602cffec0sLBbAKdKU56m": "appended",
-    "ses_222dd2fd1ffeMqL5Yqu34AhXlt": "appended",
-    "ses_222dcb277ffe7N88vLMaM5hHlE": "appended",
-    "ses_222dc763fffeMc6UcZ0OI3t07I": "appended",
-    "ses_222d4d38fffehnr4GZ2yggG0Bb": "appended",
-    "ses_222d4b675ffecpDxbFc6e9QjIj": "appended",
-    "ses_222d48880ffepT4pXF6lzDRdX4": "appended",
-    "ses_222d41c2cffep0K4IkJrJnfe3f": "appended"
+    "ses_222b9506affeLvM5mSQkhnndFx": "direct"
   },
-  "plan_name": "harness-ai-knowledge-system",
+  "plan_name": "cloud-drive-optimization",
   "agent": "atlas",
   "task_sessions": {
     "todo:1": {
       "task_key": "todo:1",
       "task_label": "1",
-      "task_title": "解决 ESLint 双配置冲突",
-      "session_id": "ses_222fc9cf1ffeQjWuZbFEQfPT73",
+      "task_title": "后端安全加固 — JWT/CORS/速率限制",
+      "session_id": "ses_2229aa708ffez0ctkOnqAQ7wSb",
       "agent": "Sisyphus-Junior",
       "category": "quick",
-      "updated_at": "2026-04-30T06:12:57.886Z"
+      "updated_at": "2026-04-30T08:17:34.991Z"
     },
-    "todo:2": {
-      "task_key": "todo:2",
-      "task_label": "2",
-      "task_title": "创建 docs/brain/ — 7 个全局认知知识文件",
-      "session_id": "ses_222fb71c0ffeojeOFz1HLrtcsO",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-04-30T06:14:07.175Z"
-    },
-    "todo:6": {
-      "task_key": "todo:6",
-      "task_label": "6",
-      "task_title": "安装 husky + lint-staged + 实现 4 条 pre-commit hook 规则",
-      "session_id": "ses_222e4e00dffe7jIjIJCLChX47j",
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "前端核心模块测试",
+      "session_id": "ses_22285c897ffeeJ768H1GAyHRU6",
       "agent": "Sisyphus-Junior",
       "category": "unspecified-high",
-      "updated_at": "2026-04-30T06:43:01.657Z"
+      "updated_at": "2026-04-30T08:27:51.457Z"
     },
-    "todo:7": {
-      "task_key": "todo:7",
-      "task_label": "7",
-      "task_title": "升级根目录 AGENTS.md — 协议+导航融合",
-      "session_id": "ses_222dd2fd1ffeMqL5Yqu34AhXlt",
+    "todo:15": {
+      "task_key": "todo:15",
+      "task_label": "15",
+      "task_title": "后端 context 传播 + graceful shutdown",
+      "session_id": "ses_2226b4efaffe1Tla9ulramUJxB",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-30T09:01:28.904Z"
+    },
+    "todo:17": {
+      "task_key": "todo:17",
+      "task_label": "17",
+      "task_title": "后端错误处理统一 + HTTP 状态码改进",
+      "session_id": "ses_222553625ffe4x6h7Y6mQiQVQc",
       "agent": "Sisyphus-Junior",
       "category": "quick",
-      "updated_at": "2026-04-30T06:46:54.366Z"
+      "updated_at": "2026-04-30T09:15:46.300Z"
     },
-    "todo:10": {
-      "task_key": "todo:10",
-      "task_label": "10",
-      "task_title": "删除已迁移的旧 docs 文件",
-      "session_id": "ses_222dcb277ffe7N88vLMaM5hHlE",
+    "todo:20": {
+      "task_key": "todo:20",
+      "task_label": "20",
+      "task_title": "UX 改善 — 空状态/搜索/分页",
+      "session_id": "ses_22209a6ecffeAlKLCBHUiUF8uk",
       "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-04-30T06:47:18.049Z"
-    },
-    "todo:11": {
-      "task_key": "todo:11",
-      "task_label": "11",
-      "task_title": "验证结构：链接完整性 + frontmatter + 文件存在",
-      "session_id": "ses_222d9f900ffeMhQGhaSTZSM8dq",
-      "agent": "Sisyphus-Junior",
-      "category": "quick",
-      "updated_at": "2026-04-30T06:51:18.012Z"
+      "category": "visual-engineering",
+      "updated_at": "2026-04-30T10:38:44.705Z"
     },
     "final-wave:f1": {
       "task_key": "final-wave:f1",
       "task_label": "F1",
       "task_title": "**Plan Compliance Audit** — `oracle`",
-      "session_id": "ses_222d41c2cffep0K4IkJrJnfe3f",
+      "session_id": "ses_221ec9dc2ffeRGkKUAxbHNv7Ap",
       "agent": "Sisyphus-Junior",
-      "category": "deep",
-      "updated_at": "2026-04-30T07:00:08.997Z"
+      "category": "unspecified-high",
+      "updated_at": "2026-04-30T11:12:24.919Z"
     }
   }
 }
