@@ -8,3 +8,4 @@ data/*
 .trae/*
 .playwright-mcp/*
 .env
+.sisyphus/evidence/

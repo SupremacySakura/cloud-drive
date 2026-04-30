@@ -12,7 +12,7 @@
 ## 更新入口
 
 - 当页面结构、路由配置、鉴权流程、请求拦截器或前端构建命令变更时更新本文。
-- 接口契约变化需同时检查 `backend-structure.md` 与 `project-context.md` 的对应描述。
+- 接口契约变化需同时检查 `backend-structure.md` 与 `brain/project.md` 的对应描述。
 
 ## 目录结构与职责
 

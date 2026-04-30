@@ -1,27 +1,21 @@
-# AGENTS.md（全局索引）
+# AGENTS.md
 
-> 本文件仅作为导航入口。详细内容统一维护在 `docs/`，避免重复与信息漂移。
+## AI 读取协议（所有 AI 工具必读）
+1. **读取顺序**: 先读 docs/brain/ 全部 → 再按需读 docs/tasks/ 最近 3 条 → 按匹配条件读 docs/skills/
+2. **写入禁止**: docs/brain/ 和 docs/skills/ 对 AI 只读，修改需人工审核
+3. **冲突处理**: 代码与文档不一致时以代码为准，但需在约束文件记录差异
 
 ## 文档中心入口
-
-- 文档总索引：[docs/README.md](./docs/README.md)
-- 编写与维护约定：[docs/CONVENTIONS.md](./docs/CONVENTIONS.md)
-
-## 推荐阅读顺序
-
-1. [docs/project-context.md](./docs/project-context.md)
-2. [docs/project-constraints.md](./docs/project-constraints.md)
-3. [docs/ai-execution.md](./docs/ai-execution.md)
-4. [docs/frontend-structure.md](./docs/frontend-structure.md)
-5. [docs/backend-structure.md](./docs/backend-structure.md)
-6. [docs/testing-guide.md](./docs/testing-guide.md)
+- 必读层: [docs/brain/](./docs/brain/) — 项目全局认知
+- 学习层: [docs/tasks/](./docs/tasks/) — 任务结果与教训
+- 能力层: [docs/skills/](./docs/skills/) — 可复用操作模式
+- 详细参考: [docs/frontend-structure.md](./docs/frontend-structure.md) | [docs/backend-structure.md](./docs/backend-structure.md)
+- 文档约定: [docs/brain/conventions.md](./docs/brain/conventions.md)
 
 ## 子项目索引
+- 前端: [apps/cloud-drive-frontend/AGENTS.md](./apps/cloud-drive-frontend/AGENTS.md)
+- 后端: [apps/cloud-drive-backend/AGENTS.md](./apps/cloud-drive-backend/AGENTS.md)
 
-- 前端索引：[apps/cloud-drive-frontend/AGENTS.md](./apps/cloud-drive-frontend/AGENTS.md)
-- 后端索引：[apps/cloud-drive-backend/AGENTS.md](./apps/cloud-drive-backend/AGENTS.md)
-
-## 使用边界
-
-- 当前文件只回答“去哪里看”。
-- 具体规则、命令、流程只在 `docs/` 主题正文维护。
+## 工具专属目录
+- .trae/ — Trae IDE 工作空间（已 gitignore，不作为项目知识来源）
+- .sisyphus/ — OpenCode 执行引擎（plans 是执行计划，非学习日志）

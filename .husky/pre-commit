@@ -1,0 +1,21 @@
+#!/bin/bash
+
+echo "🔍 运行 pre-commit hooks..."
+
+# 1. lint-staged: ESLint 修复前端代码
+echo "📦 1/4 运行 lint-staged..."
+npx lint-staged
+
+# 2. 检查 Markdown H1
+echo "📝 2/4 检查 Markdown H1..."
+./scripts/hooks/check-md-h1.sh
+
+# 3. 检查 docs/ 链接可达性
+echo "🔗 3/4 检查 docs/ 链接..."
+./scripts/hooks/check-doc-links.sh
+
+# 4. 检查 .env 文件提交
+echo "🔐 4/4 检查 .env 文件..."
+./scripts/hooks/check-env.sh
+
+echo "✅ 所有 pre-commit hooks 通过"

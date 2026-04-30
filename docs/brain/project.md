@@ -1,3 +1,9 @@
+---
+last_reviewed: 2026-04-30
+---
+
+本文为 Brain 层知识文件，AI 工具进入项目时应优先读取 docs/brain/
+
 # 项目上下文
 
 ## 来源
@@ -12,7 +18,7 @@
 ## 更新入口
 
 - 当项目技术栈、目录拓扑、端口约定、联调方式发生变更时，优先更新本文。
-- 变更涉及子域细节时，同时同步到对应主题文档：见 `frontend-structure.md`、`backend-structure.md`、`project-constraints.md`。
+- 变更涉及子域细节时，同时同步到对应主题文档：见 `frontend-structure.md`、`backend-structure.md`、`brain/constraints.md`。
 
 ## 项目目标与形态
 
@@ -43,4 +49,6 @@
 1. 在仓库根目录执行 `pnpm install` 安装依赖。
 2. 在 `apps/cloud-drive-backend` 执行 `go run cmd/server/main.go` 启动后端。
 3. 在 `apps/cloud-drive-frontend` 执行 `pnpm dev` 启动前端。
-4. 阅读顺序建议：`project-constraints.md` → `ai-execution.md` → `frontend-structure.md` / `backend-structure.md` → `testing-guide.md`。
+4. 阅读顺序建议：`brain/constraints.md` → `brain/ai-execution.md` → `frontend-structure.md` / `backend-structure.md` → `brain/testing.md`。
+
+(End of file - total 46 lines)
