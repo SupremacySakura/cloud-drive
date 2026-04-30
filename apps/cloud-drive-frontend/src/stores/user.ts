@@ -1,24 +1,28 @@
-import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
 
-export const useUserStore = defineStore("user", () => {
+export const useUserStore = defineStore(
+  'user',
+  () => {
     const token = ref('')
     const setToken = (newToken: string) => {
-        token.value = newToken
+      token.value = newToken
     }
 
     const logout = () => {
-        token.value = ''
+      token.value = ''
     }
 
     const isLoggedIn = computed(() => !!token.value)
 
     return {
-        token,
-        isLoggedIn,
-        setToken,
-        logout
+      token,
+      isLoggedIn,
+      setToken,
+      logout,
     }
-}, {
-    persist: true
-});
+  },
+  {
+    persist: true,
+  },
+)

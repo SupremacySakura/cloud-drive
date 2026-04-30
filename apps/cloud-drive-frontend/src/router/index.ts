@@ -8,7 +8,7 @@ const router = createRouter({
   routes: routes,
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach(async to => {
   const userStore = useUserStore()
 
   if (to.meta.requiresAuth) {
@@ -18,7 +18,7 @@ router.beforeEach(async (to) => {
         query: { redirect: to.fullPath },
       }
     }
-    
+
     try {
       const res = await checkLogin()
       if (res.code !== 0) {

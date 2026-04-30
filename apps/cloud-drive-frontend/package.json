@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint . --ignore-pattern 'data/**' --ignore-pattern '**/data/**'",
+    "lint:fix": "eslint . --ignore-pattern 'data/**' --ignore-pattern '**/data/**' --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -18,14 +22,22 @@
     "vue-router": "^5.0.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@iconify/vue": "^5.0.0",
     "@types/node": "^24.12.0",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vitejs/plugin-vue-jsx": "^5.1.5",
     "@vue/tsconfig": "^0.9.0",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-vue": "^10.9.0",
+    "prettier": "^3.8.3",
     "sass": "^1.98.0",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.59.1",
     "vite": "^8.0.0",
+    "vue-eslint-parser": "^10.4.0",
     "vue-tsc": "^3.2.5"
   }
 }

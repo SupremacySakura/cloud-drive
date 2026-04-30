@@ -5,14 +5,14 @@ import vueJsx from '@vitejs/plugin-vue-jsx'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue(), tailwindcss(), vueJsx()],
-  server:{
-    proxy:{
-      '/api':{
-        target:'http://localhost:9000',
-        changeOrigin:true,
-        secure:false,
-        rewrite:(path) => path.replace(/^\/api/,'')
-      }
-    }
-  }
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:9000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: path => path.replace(/^\/api/, ''),
+      },
+    },
+  },
 })

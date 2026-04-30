@@ -1,289 +1,319 @@
 import request from '../request'
 import type { ResponseData } from '../types'
 import { calculateHash } from '../../utils/hash'
-import type { FileListItem, InitUploadFileRequest, InitUploadFileResponse, MakeDirectoryRequest, RenameFileRequest, MoveFileRequest, DeleteFileRequest, CreatePickupCodeRequest, PickupCodeItem, DashboardOverviewResponse } from '../types/file'
+import type {
+  FileListItem,
+  InitUploadFileRequest,
+  InitUploadFileResponse,
+  MakeDirectoryRequest,
+  RenameFileRequest,
+  MoveFileRequest,
+  DeleteFileRequest,
+  CreatePickupCodeRequest,
+  PickupCodeItem,
+  DashboardOverviewResponse,
+} from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
-export const uploadFile = async (file: File, fileConfig: UploadFileConfig, onProgress: (progress: number) => void) => {
+export const uploadFile = async (
+  file: File,
+  fileConfig: UploadFileConfig,
+  onProgress: (progress: number) => void,
+) => {
+  onProgress(0)
+  const total_chunks = Math.ceil(file.size / (1024 * 1024))
+  // init
+  const initData: InitUploadFileRequest = {
+    file_name: file.name,
+    file_size: file.size,
+    file_hash: await calculateHash(file),
+    chunk_size: 1024 * 1024,
+    total_chunks,
+    file_type: fileConfig.file_type,
+    folder_id: fileConfig.folder_id || 0,
+  }
+  const initRes = await request.post<ResponseData<InitUploadFileResponse>>(
+    '/api/file/init',
+    initData,
+  )
+  if (initRes.data.code !== 0) {
     onProgress(0)
-    const total_chunks = Math.ceil(file.size / (1024 * 1024))
-    // init
-    const initData: InitUploadFileRequest = {
-        file_name: file.name,
-        file_size: file.size,
-        file_hash: await calculateHash(file),
-        chunk_size: 1024 * 1024,
-        total_chunks,
-        file_type: fileConfig.file_type,
-        folder_id: fileConfig.folder_id || 0,
-    }
-    const initRes = await request.post<ResponseData<InitUploadFileResponse>>('/api/file/init', initData)
-    if (initRes.data.code !== 0) {
-        onProgress(0)
-        return
-    }
-    if (initRes.data.data.status !== 'uploading') {
-        onProgress(100)
-        return
-    }
-    const uploaded_chunks = new Set(initRes.data.data.uploaded_chunks)
-    // 上传的时候跳过已经上传的chunk
-    for (let chunk_index = 0; chunk_index < total_chunks; chunk_index++) {
-        if (uploaded_chunks.has(chunk_index)) {
-            onProgress((chunk_index + 1) / total_chunks * 100)
-            continue
-        }
-        // 上传chunk
-        const chunk = file.slice(chunk_index * 1024 * 1024, (chunk_index + 1) * 1024 * 1024)
-        const uploadData = new FormData()
-        uploadData.append('task_id', initRes.data.data.task_id.toString())
-        uploadData.append('chunk_index', chunk_index.toString())
-        uploadData.append('chunk_data', chunk)
-        uploadData.append('chunk_hash', await calculateHash(chunk))
-        const chunkRes = await request.post<ResponseData<{}>>('/api/file/chunk', uploadData)
-        if (chunkRes.data.code !== 0) {
-            onProgress(0)
-            return
-        }
-        // 更新进度
-        onProgress((chunk_index + 1) / total_chunks * 100)
-    }
-    // 合并chunk
-    const mergeRes = await request.post<ResponseData<{}>>('/api/file/merge', {
-        task_id: initRes.data.data.task_id,
-    })
-    if (mergeRes.data.code !== 0) {
-        onProgress(0)
-        return
-    }
+    return
+  }
+  if (initRes.data.data.status !== 'uploading') {
     onProgress(100)
+    return
+  }
+  const uploaded_chunks = new Set(initRes.data.data.uploaded_chunks)
+  // 上传的时候跳过已经上传的chunk
+  for (let chunk_index = 0; chunk_index < total_chunks; chunk_index++) {
+    if (uploaded_chunks.has(chunk_index)) {
+      onProgress(((chunk_index + 1) / total_chunks) * 100)
+      continue
+    }
+    // 上传chunk
+    const chunk = file.slice(chunk_index * 1024 * 1024, (chunk_index + 1) * 1024 * 1024)
+    const uploadData = new FormData()
+    uploadData.append('task_id', initRes.data.data.task_id.toString())
+    uploadData.append('chunk_index', chunk_index.toString())
+    uploadData.append('chunk_data', chunk)
+    uploadData.append('chunk_hash', await calculateHash(chunk))
+    const chunkRes = await request.post<ResponseData<{}>>('/api/file/chunk', uploadData)
+    if (chunkRes.data.code !== 0) {
+      onProgress(0)
+      return
+    }
+    // 更新进度
+    onProgress(((chunk_index + 1) / total_chunks) * 100)
+  }
+  // 合并chunk
+  const mergeRes = await request.post<ResponseData<{}>>('/api/file/merge', {
+    task_id: initRes.data.data.task_id,
+  })
+  if (mergeRes.data.code !== 0) {
+    onProgress(0)
+    return
+  }
+  onProgress(100)
 }
 
-export const getListByFolderIDAndUserID = async (folderID: number, page: number, pageSize: number) => {
-    const res = await request.get<ResponseData<FileListItem[]>>('/api/file/list', {
-        params: {
-            folder_id: folderID,
-            page,
-            page_size: pageSize,
-        },
-    })
-    if (res.data.code !== 0) {
-        return []
-    }
-    return res.data.data
+export const getListByFolderIDAndUserID = async (
+  folderID: number,
+  page: number,
+  pageSize: number,
+) => {
+  const res = await request.get<ResponseData<FileListItem[]>>('/api/file/list', {
+    params: {
+      folder_id: folderID,
+      page,
+      page_size: pageSize,
+    },
+  })
+  if (res.data.code !== 0) {
+    return []
+  }
+  return res.data.data
 }
 
 export const getDashboardOverview = async () => {
-    const res = await request.get<ResponseData<DashboardOverviewResponse>>('/api/file/dashboard/overview')
-    if (res.data.code !== 0 || !res.data.data) {
-        throw new Error(res.data.msg || '获取仪表盘数据失败')
-    }
-    return res.data.data
+  const res = await request.get<ResponseData<DashboardOverviewResponse>>(
+    '/api/file/dashboard/overview',
+  )
+  if (res.data.code !== 0 || !res.data.data) {
+    throw new Error(res.data.msg || '获取仪表盘数据失败')
+  }
+  return res.data.data
 }
 
 export const getListCountByFolderIDAndUserID = async (folderID: number) => {
-    const res = await request.get<ResponseData<number>>('/api/file/list/count', {
-        params: {
-            folder_id: folderID,
-        },
-    })
-    if (res.data.code !== 0) {
-        return 0
-    }
-    return res.data.data
+  const res = await request.get<ResponseData<number>>('/api/file/list/count', {
+    params: {
+      folder_id: folderID,
+    },
+  })
+  if (res.data.code !== 0) {
+    return 0
+  }
+  return res.data.data
 }
 
 export const makeDirectory = async (data: MakeDirectoryRequest) => {
-    const res = await request.post<ResponseData<number>>('/api/file/mkdir', data)
-    if (res.data.code !== 0) {
-        return 0
-    }
-    return res.data.data
+  const res = await request.post<ResponseData<number>>('/api/file/mkdir', data)
+  if (res.data.code !== 0) {
+    return 0
+  }
+  return res.data.data
 }
 
 export const renameFile = async (data: RenameFileRequest) => {
-    const res = await request.post<ResponseData<null>>('/api/file/rename', data)
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '重命名失败')
-    }
+  const res = await request.post<ResponseData<null>>('/api/file/rename', data)
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '重命名失败')
+  }
 }
 
 export const moveFile = async (data: MoveFileRequest) => {
-    const res = await request.post<ResponseData<null>>('/api/file/move', data)
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '移动失败')
-    }
+  const res = await request.post<ResponseData<null>>('/api/file/move', data)
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '移动失败')
+  }
 }
 
 export const deleteFile = async (data: DeleteFileRequest) => {
-    const res = await request.post<ResponseData<null>>('/api/file/delete', data)
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '删除失败')
-    }
+  const res = await request.post<ResponseData<null>>('/api/file/delete', data)
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '删除失败')
+  }
 }
 
 export const createPickupCode = async (data: CreatePickupCodeRequest) => {
-    const res = await request.post<ResponseData<number>>('/api/file/code', data)
-    if (res.data.code !== 0) {
-        return null
-    }
-    return res.data.data
+  const res = await request.post<ResponseData<number>>('/api/file/code', data)
+  if (res.data.code !== 0) {
+    return null
+  }
+  return res.data.data
 }
 
 export const getPickupCodeList = async (page: number, pageSize: number) => {
-    const res = await request.get<ResponseData<PickupCodeItem[]>>('/api/file/code/list', {
-        params: {
-            page,
-            page_size: pageSize,
-        },
-    })
-    if (res.data.code !== 0) {
-        return []
-    }
-    return res.data.data ?? []
+  const res = await request.get<ResponseData<PickupCodeItem[]>>('/api/file/code/list', {
+    params: {
+      page,
+      page_size: pageSize,
+    },
+  })
+  if (res.data.code !== 0) {
+    return []
+  }
+  return res.data.data ?? []
 }
 
 export const getPickupCodeCount = async () => {
-    const res = await request.get<ResponseData<number>>('/api/file/code/count')
-    if (res.data.code !== 0) {
-        return 0
-    }
-    return res.data.data ?? 0
+  const res = await request.get<ResponseData<number>>('/api/file/code/count')
+  if (res.data.code !== 0) {
+    return 0
+  }
+  return res.data.data ?? 0
 }
 
 export const deletePickupCode = async (id: number) => {
-    const res = await request.delete<ResponseData<null>>('/api/file/code', {
-        params: { id },
-    })
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '删除取件码失败')
-    }
+  const res = await request.delete<ResponseData<null>>('/api/file/code', {
+    params: { id },
+  })
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '删除取件码失败')
+  }
 }
 
 const parseDownloadFileName = (contentDisposition?: string) => {
-    if (!contentDisposition) return 'download'
-    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
-    if (utf8Match?.[1]) {
-        return decodeURIComponent(utf8Match[1])
-    }
-    const normalMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
-    if (normalMatch?.[1]) {
-        return normalMatch[1]
-    }
-    return 'download'
+  if (!contentDisposition) return 'download'
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+  const normalMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
+  if (normalMatch?.[1]) {
+    return normalMatch[1]
+  }
+  return 'download'
 }
 
 export const downloadByPickupCode = async (code: string) => {
-    const res = await request.get<Blob>('/api/file/pickup/download', {
-        params: { code },
-        responseType: 'blob',
-    })
-    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
-    if (contentType.includes('application/json')) {
-        const text = await res.data.text()
-        const payload = JSON.parse(text) as { msg?: string }
-        throw new Error(payload.msg || '下载失败')
-    }
-    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
-    const fileName = parseDownloadFileName(contentDisposition)
-    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
-    const fileSize = blob.size
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+  const res = await request.get<Blob>('/api/file/pickup/download', {
+    params: { code },
+    responseType: 'blob',
+  })
+  const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+  if (contentType.includes('application/json')) {
+    const text = await res.data.text()
+    const payload = JSON.parse(text) as { msg?: string }
+    throw new Error(payload.msg || '下载失败')
+  }
+  const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+  const fileName = parseDownloadFileName(contentDisposition)
+  const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+  const fileSize = blob.size
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 
-    return {
-        fileName,
-        fileSize,
-        contentType
-    }
+  return {
+    fileName,
+    fileSize,
+    contentType,
+  }
 }
 
 export const previewFileById = async (fileId: number) => {
-    const res = await request.get<Blob>('/api/file/preview', {
-        params: { file_id: fileId },
-        responseType: 'blob',
-    })
-    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
-    if (contentType.includes('application/json')) {
-        const text = await res.data.text()
-        const payload = JSON.parse(text) as { msg?: string }
-        throw new Error(payload.msg || '预览失败')
-    }
-    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
-    const fileName = parseDownloadFileName(contentDisposition)
-    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
-    return {
-        fileName,
-        contentType: blob.type || contentType || 'application/octet-stream',
-        fileSize: blob.size,
-        blob,
-    }
+  const res = await request.get<Blob>('/api/file/preview', {
+    params: { file_id: fileId },
+    responseType: 'blob',
+  })
+  const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+  if (contentType.includes('application/json')) {
+    const text = await res.data.text()
+    const payload = JSON.parse(text) as { msg?: string }
+    throw new Error(payload.msg || '预览失败')
+  }
+  const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+  const fileName = parseDownloadFileName(contentDisposition)
+  const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+  return {
+    fileName,
+    contentType: blob.type || contentType || 'application/octet-stream',
+    fileSize: blob.size,
+    blob,
+  }
 }
 
 export const downloadById = async (fileId: number, folderId: number) => {
-    const res = await request.get<Blob>('/api/file/download', {
-        params: {
-            ...(fileId > 0 ? { file_id: fileId } : {}),
-            ...(folderId > 0 ? { folder_id: folderId } : {}),
-        },
-        responseType: 'blob',
-    })
-    const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
-    if (contentType.includes('application/json')) {
-        const text = await res.data.text()
-        const payload = JSON.parse(text) as { msg?: string }
-        throw new Error(payload.msg || '下载失败')
-    }
-    const contentDisposition = res.headers?.['content-disposition'] as string | undefined
-    const fileName = parseDownloadFileName(contentDisposition)
-    const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
-    const fileSize = blob.size
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    return {
-        fileName,
-        fileSize,
-        contentType,
-    }
+  const res = await request.get<Blob>('/api/file/download', {
+    params: {
+      ...(fileId > 0 ? { file_id: fileId } : {}),
+      ...(folderId > 0 ? { folder_id: folderId } : {}),
+    },
+    responseType: 'blob',
+  })
+  const contentType = (res.headers?.['content-type'] as string | undefined) ?? ''
+  if (contentType.includes('application/json')) {
+    const text = await res.data.text()
+    const payload = JSON.parse(text) as { msg?: string }
+    throw new Error(payload.msg || '下载失败')
+  }
+  const contentDisposition = res.headers?.['content-disposition'] as string | undefined
+  const fileName = parseDownloadFileName(contentDisposition)
+  const blob = new Blob([res.data], { type: contentType || 'application/octet-stream' })
+  const fileSize = blob.size
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+  return {
+    fileName,
+    fileSize,
+    contentType,
+  }
 }
 
 export const createPublicShareLink = async (fileId: number) => {
-    const res = await request.post<ResponseData<{ token: string; url: string }>>('/api/file/share/link', {
-        file_id: fileId,
-    })
-    if (res.data.code !== 0 || !res.data.data?.token) {
-        throw new Error(res.data.msg || '生成分享链接失败')
-    }
-    return res.data.data
+  const res = await request.post<ResponseData<{ token: string; url: string }>>(
+    '/api/file/share/link',
+    {
+      file_id: fileId,
+    },
+  )
+  if (res.data.code !== 0 || !res.data.data?.token) {
+    throw new Error(res.data.msg || '生成分享链接失败')
+  }
+  return res.data.data
 }
 
 export const getPublicShareLink = async (fileId: number) => {
-    const res = await request.get<ResponseData<{ exists: boolean; token: string; url: string }>>('/api/file/share/link', {
-        params: { file_id: fileId },
-    })
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '获取分享链接失败')
-    }
-    return res.data.data
+  const res = await request.get<ResponseData<{ exists: boolean; token: string; url: string }>>(
+    '/api/file/share/link',
+    {
+      params: { file_id: fileId },
+    },
+  )
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '获取分享链接失败')
+  }
+  return res.data.data
 }
 
 export const deletePublicShareLink = async (fileId: number) => {
-    const res = await request.delete<ResponseData<null>>('/api/file/share/link', {
-        params: { file_id: fileId },
-    })
-    if (res.data.code !== 0) {
-        throw new Error(res.data.msg || '删除分享链接失败')
-    }
+  const res = await request.delete<ResponseData<null>>('/api/file/share/link', {
+    params: { file_id: fileId },
+  })
+  if (res.data.code !== 0) {
+    throw new Error(res.data.msg || '删除分享链接失败')
+  }
 }
