@@ -41,15 +41,26 @@ var (
 )
 
 var allowedMIMETypes = map[string]bool{
-	"image/":        true,
-	"video/":        true,
+	"image/":          true,
+	"video/":          true,
 	"application/pdf": true,
 	"application/zip": true,
-	"text/":         true,
+	"text/":           true,
+}
+
+var blockedMIMETypes = map[string]bool{
+	"text/javascript":      true,
+	"application/javascript": true,
+	"application/x-javascript": true,
+	"application/ecmascript":   true,
+	"text/ecmascript":          true,
 }
 
 func (s *fileService) IsAllowedMIMEType(mimeType string) bool {
 	if mimeType == "" {
+		return false
+	}
+	if blockedMIMETypes[mimeType] {
 		return false
 	}
 	if allowedMIMETypes[mimeType] {
@@ -131,8 +142,14 @@ func sanitizeStorageFileExt(name string) string {
 }
 
 func validateZipEntryPath(entryPath string) error {
+	if entryPath == "" {
+		return errors.New("invalid zip entry path: empty path")
+	}
+	if strings.Contains(entryPath, "..") {
+		return errors.New("invalid zip entry path: contains path traversal")
+	}
 	cleanPath := path.Clean(entryPath)
-	if cleanPath == "." || cleanPath == "" {
+	if cleanPath == "." {
 		return errors.New("invalid zip entry path: empty path")
 	}
 	if strings.HasPrefix(cleanPath, "/") {

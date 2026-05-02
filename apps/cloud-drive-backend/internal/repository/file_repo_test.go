@@ -70,7 +70,7 @@ func TestFileRepository_GetFileByHash(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
-		WithArgs("abc123").
+		WithArgs("abc123", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "folder_id", "name", "size", "type", "file_hash"}).
 			AddRow(1, 1, 1, "test.txt", 1024, "text/plain", "abc123"))
 

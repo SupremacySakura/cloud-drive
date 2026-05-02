@@ -72,7 +72,7 @@ func TestLogin_InvalidJSON(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "1001") // CodeInvalidParam
 }
 
@@ -91,7 +91,7 @@ func TestLogin_EmptyUsername(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestLogin_EmptyPassword(t *testing.T) {
@@ -109,7 +109,7 @@ func TestLogin_EmptyPassword(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestLogin_UserNotFound(t *testing.T) {
@@ -129,8 +129,8 @@ func TestLogin_UserNotFound(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "1001") // CodeInvalidParam
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "1002")
 }
 
 func TestLogin_WrongPassword(t *testing.T) {
@@ -154,8 +154,8 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "1001") // CodeInvalidParam
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "1002")
 }
 
 func TestLogin_Success(t *testing.T) {
@@ -196,8 +196,8 @@ func TestRegister_InvalidJSON(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), "1001") // CodeInvalidParam
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "1001")
 }
 
 func TestRegister_EmptyUsername(t *testing.T) {

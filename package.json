@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "pnpm --filter cloud-drive-frontend vue-tsc -b --pretty false",
     "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx}\"",
     "clean": "tsc -b --clean",
     "prepare": "husky",
