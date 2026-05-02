@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/model"
 
 	"github.com/DATA-DOG/go-sqlmock"

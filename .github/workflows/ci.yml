@@ -105,7 +105,6 @@ jobs:
   # Job 4: Deploy - SSH to server and pull code + restart services
   deploy:
     name: Deploy to Production
-    needs: [docker]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     concurrency: deploy-production

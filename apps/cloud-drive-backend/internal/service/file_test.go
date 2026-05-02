@@ -277,15 +277,15 @@ func TestSanitizeFileName_MultipleExtensions(t *testing.T) {
 // Test sanitizeFileName case sensitivity
 func TestSanitizeFileName_CaseSensitivity(t *testing.T) {
 	// Reserved names should be case-insensitive
-	result, err := sanitizeFileName("con")
+	_, err := sanitizeFileName("con")
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidFileName, err)
 
-	result, err = sanitizeFileName("CON")
+	_, err = sanitizeFileName("CON")
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidFileName, err)
 
-	result, err = sanitizeFileName("Con")
+	_, err = sanitizeFileName("Con")
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidFileName, err)
 }

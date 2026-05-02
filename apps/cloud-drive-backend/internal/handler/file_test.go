@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 
 	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/model"
+	"cloud-drive-backend/internal/vo"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +21,7 @@ import (
 // Mock FileService
 type mockFileService struct {
 	initUploadFileFunc          func(req *model.UploadTask) (*model.UploadTask, error)
-	uploadFileChunkStreamFunc   func(userID uint, chunk *dto.UploadChunkReq, reader interface{}, chunkSize int64) error
+	uploadFileChunkStreamFunc   func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
 	isAllowedMIMETypeFunc       func(mimeType string) bool
 	mergeUploadedChunksFunc     func(userID uint, taskID uint) error
 	getDashboardOverviewFunc    func(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
@@ -30,16 +32,16 @@ type mockFileService struct {
 	moveByIDsFunc               func(userID uint, fileID, folderID, targetFolderID uint) error
 	deleteByIDsFunc             func(userID uint, fileID, folderID uint) error
 	createPickUpCodeFunc        func(code *model.PickUpCodeModel) (uint, error)
-	getPickUpCodeListFunc       func(userID uint, page, pageSize int) ([]interface{}, error)
+	getPickUpCodeListFunc       func(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error)
 	getPickUpCodeCountFunc      func(userID uint) (int64, error)
 	deletePickUpCodeFunc        func(userID uint, codeID uint) error
 	createPublicShareLinkFunc   func(fileID uint, userID uint) (string, error)
 	getPublicShareLinkFunc      func(fileID uint, userID uint) (string, error)
 	deletePublicShareLinkFunc   func(fileID uint, userID uint) error
-	openPublicShareFunc         func(token string, writer interface{}, setMeta func(fileName, contentType string)) error
-	previewFileByIDFunc         func(fileID uint, userID uint, writer interface{}, setMeta func(fileName, contentType string)) error
-	downloadByIDsFunc           func(userID uint, fileID, folderID uint, writer interface{}, setMeta func(fileName, contentType string)) error
-	downloadByPickUpCodeFunc    func(code string, writer interface{}, setMeta func(fileName, contentType string)) error
+	openPublicShareFunc         func(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	previewFileByIDFunc         func(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	downloadByIDsFunc           func(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	downloadByPickUpCodeFunc    func(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
 
 func (m *mockFileService) InitUploadFile(req *model.UploadTask) (*model.UploadTask, error) {
@@ -49,7 +51,7 @@ func (m *mockFileService) InitUploadFile(req *model.UploadTask) (*model.UploadTa
 	return nil, nil
 }
 
-func (m *mockFileService) UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader interface{}, chunkSize int64) error {
+func (m *mockFileService) UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
 	if m.uploadFileChunkStreamFunc != nil {
 		return m.uploadFileChunkStreamFunc(userID, chunk, reader, chunkSize)
 	}
@@ -126,7 +128,7 @@ func (m *mockFileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, e
 	return 0, nil
 }
 
-func (m *mockFileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]interface{}, error) {
+func (m *mockFileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
 	if m.getPickUpCodeListFunc != nil {
 		return m.getPickUpCodeListFunc(userID, page, pageSize)
 	}
@@ -168,28 +170,28 @@ func (m *mockFileService) DeletePublicShareLink(fileID uint, userID uint) error 
 	return nil
 }
 
-func (m *mockFileService) OpenPublicShare(token string, writer interface{}, setMeta func(fileName, contentType string)) error {
+func (m *mockFileService) OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error {
 	if m.openPublicShareFunc != nil {
 		return m.openPublicShareFunc(token, writer, setMeta)
 	}
 	return nil
 }
 
-func (m *mockFileService) PreviewFileByID(fileID uint, userID uint, writer interface{}, setMeta func(fileName, contentType string)) error {
+func (m *mockFileService) PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
 	if m.previewFileByIDFunc != nil {
 		return m.previewFileByIDFunc(fileID, userID, writer, setMeta)
 	}
 	return nil
 }
 
-func (m *mockFileService) DownloadByIDs(userID uint, fileID, folderID uint, writer interface{}, setMeta func(fileName, contentType string)) error {
+func (m *mockFileService) DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
 	if m.downloadByIDsFunc != nil {
 		return m.downloadByIDsFunc(userID, fileID, folderID, writer, setMeta)
 	}
 	return nil
 }
 
-func (m *mockFileService) DownloadByPickUpCode(code string, writer interface{}, setMeta func(fileName, contentType string)) error {
+func (m *mockFileService) DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error {
 	if m.downloadByPickUpCodeFunc != nil {
 		return m.downloadByPickUpCodeFunc(code, writer, setMeta)
 	}
@@ -617,7 +619,7 @@ func TestOpenPublicShare_MissingToken(t *testing.T) {
 
 func TestOpenPublicShare_ValidToken(t *testing.T) {
 	router, mockFileSvc, _, handler := setupFileHandlerTest()
-	mockFileSvc.openPublicShareFunc = func(token string, writer interface{}, setMeta func(fileName, contentType string)) error {
+	mockFileSvc.openPublicShareFunc = func(token string, writer io.Writer, setMeta func(fileName, contentType string)) error {
 		return nil
 	}
 	router.GET("/share/open", handler.OpenPublicShare)
