@@ -13,13 +13,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=go-build-cache CGO_ENABLE
 FROM alpine:3.22
 
 WORKDIR /app
-RUN apk add --no-cache ca-certificates wget \
+RUN apk add --no-cache ca-certificates wget su-exec \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
 
 COPY --from=builder /app/server /app/server
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER appuser
+# 创建数据目录（权限将在运行时通过 entrypoint 设置）
+RUN mkdir -p /app/data
 
 EXPOSE 9000
 
-CMD ["/app/server"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
