@@ -110,6 +110,44 @@ cd apps/cloud-drive-backend && go run cmd/server/main.go
 cd apps/cloud-drive-frontend && pnpm dev
 ```
 
+## 服务器部署
+
+### 首次部署（手动）
+
+1. 在服务器上安装 Docker 和 Docker Compose v2
+2. 使用 SSH 登录服务器，clone 项目到目标目录
+3. 在项目根目录创建 `.env` 文件（参考 `.env.example`，填入生产环境值，特别是以下变量）：
+   - `MYSQL_ROOT_PASSWORD` — MySQL root 密码
+   - `DB_PASSWORD` — 应用数据库密码
+   - `JWT_SECRET` — JWT 密钥
+4. 确保数据目录存在且有正确权限：
+
+```bash
+mkdir -p data/mysql
+```
+
+5. 首次执行以下命令启动服务：
+
+```bash
+docker compose --profile full up -d --build
+```
+
+### GitHub Secrets 配置
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中添加以下 Secrets：
+
+| Secret 名称 | 说明 | 示例 |
+|---|---|---|
+| `SERVER_HOST` | 服务器 IP 地址 | `1.2.3.4` |
+| `SERVER_USER` | SSH 用户名 | `root` |
+| `SSH_PRIVATE_KEY` | SSH 私钥内容（id_rsa 的内容） | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `DEPLOY_DIR` | 项目在服务器上的绝对路径 | `/opt/cloud-drive` |
+
+### 自动部署
+
+- 配置完成后，push 代码到 main 分支会自动触发部署
+- 可在 GitHub 仓库的 **Actions** 标签页查看部署状态
+
 ## 排障说明
 
 ### 端口冲突
