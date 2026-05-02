@@ -114,27 +114,36 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Get SSH fingerprint
+        id: get-fingerprint
+        run: |
+          HOST="${{ secrets.SERVER_HOST }}"
+          FINGERPRINT=$(ssh-keyscan -H "$HOST" 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')
+          echo "fingerprint=$FINGERPRINT" >> $GITHUB_OUTPUT
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: ${{ secrets.SERVER_HOST }} $(ssh-keyscan -H ${{ secrets.SERVER_HOST }} 2>/dev/null)
-          script_stop: true
+          fingerprint: ${{ steps.get-fingerprint.outputs.fingerprint }}
+          envs: DEPLOY_DIR
           script: |
+            set -e
+
+            echo "Deploying to: $DEPLOY_DIR"
+
             # 1. 检查 .env 文件是否存在
             if [ ! -f "$DEPLOY_DIR/.env" ]; then
               echo "ERROR: .env file not found in $DEPLOY_DIR"
+              ls -la "$DEPLOY_DIR" || echo "Directory does not exist or is not accessible"
               exit 1
             fi
 
             # 2. 进入部署目录并拉取代码
-            cd $DEPLOY_DIR || exit 1
-            git pull origin main || {
-              echo "ERROR: git pull failed"
-              exit 1
-            }
+            cd "$DEPLOY_DIR"
+            git pull origin main
 
             # 3. 重启 Docker 服务
             docker compose --profile full up -d --build --force-recreate
