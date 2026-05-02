@@ -1,0 +1,11 @@
+.env
+.env.example
+.git
+.gitignore
+*.md
+AGENTS.md
+ENV_CONFIG.md
+README.md
+.DS_Store
+*.test
+*.out
