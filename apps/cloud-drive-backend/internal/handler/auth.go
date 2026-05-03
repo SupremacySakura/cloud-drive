@@ -113,6 +113,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
+// checkLogin godoc
+// @Summary 检查登录状态
+// @Description 验证用户是否已登录（通过JWT Token）
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.Response{data=nil} "已登录（code=0）"
+// @Failure 401 {object} response.Response "未登录（code=1002）"
+// @Security ApiKeyAuth
+// @Router /auth/check [get]
 func (h *AuthHandler) checkLogin(c *gin.Context) {
 	// 从上下文获取用户ID
 	_, exists := c.Get("user_id")
