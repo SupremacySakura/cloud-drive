@@ -49,8 +49,8 @@ var allowedMIMETypes = map[string]bool{
 }
 
 var blockedMIMETypes = map[string]bool{
-	"text/javascript":      true,
-	"application/javascript": true,
+	"text/javascript":          true,
+	"application/javascript":   true,
 	"application/x-javascript": true,
 	"application/ecmascript":   true,
 	"text/ecmascript":          true,
@@ -175,28 +175,28 @@ type FileServiceOptions struct {
 
 // FileService 定义文件服务的对外接口（用于 DI/替换实现）
 type FileService interface {
-    InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
-    UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
-    IsAllowedMIMEType(mimeType string) bool
-    MergeUploadedChunks(userID uint, taskID uint) error
-    GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
-    GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
-    GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
-    MakeDirectory(folderID uint, name string, userID uint) (uint, error)
-    RenameByIDs(userID uint, fileID, folderID uint, name string) error
-    MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
-    DeleteByIDs(userID uint, fileID, folderID uint) error
-    CreatePickUpCode(code *model.PickUpCodeModel) (uint, error)
-    GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
-    GetPickUpCodeListCountByUserID(userID uint) (int64, error)
-    DeletePickUpCodeByID(userID uint, codeID uint) error
-    CreatePublicShareLink(fileID uint, userID uint) (string, error)
-    GetPublicShareLink(fileID uint, userID uint) (string, error)
-    DeletePublicShareLink(fileID uint, userID uint) error
-    OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
-    PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-    DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-    DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
+	UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
+	IsAllowedMIMEType(mimeType string) bool
+	MergeUploadedChunks(userID uint, taskID uint) error
+	GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
+	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
+	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
+	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
+	RenameByIDs(userID uint, fileID, folderID uint, name string) error
+	MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
+	DeleteByIDs(userID uint, fileID, folderID uint) error
+	CreatePickUpCode(userID uint, code *model.PickUpCodeModel) (uint, error)
+	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
+	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
+	DeletePickUpCodeByID(userID uint, codeID uint) error
+	CreatePublicShareLink(fileID uint, userID uint) (string, error)
+	GetPublicShareLink(fileID uint, userID uint) (string, error)
+	DeletePublicShareLink(fileID uint, userID uint) error
+	OpenPublicShare(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	PreviewFileByID(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
 
 // FileService 为对外暴露的接口，保持与原有实现一致
@@ -208,6 +208,7 @@ type fileService struct {
 
 type PickUpDownloadTarget struct {
 	CodeID       uint
+	UserID       uint
 	Type         model.PickUpTargetType
 	FilePath     string
 	FolderID     uint
@@ -229,13 +230,22 @@ func (s *fileService) ensureStorageQuota(userID uint, additionalSize uint64) err
 }
 
 func NewFileService(fileRepository *repository.FileRepository, options FileServiceOptions) FileService {
-    return &fileService{
-        FileRepository:     fileRepository,
-        FileServiceOptions: options,
-    }
+	return &fileService{
+		FileRepository:     fileRepository,
+		FileServiceOptions: options,
+	}
 }
 
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
+	if req.FolderID > 0 {
+		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(req.FolderID, req.UserID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, ErrFolderNotFound
+			}
+			return nil, err
+		}
+	}
+
 	exists, err := s.FileRepository.CheckFileExistsInFolder(req.FileHash, req.UserID, req.FolderID)
 	if err != nil {
 		return nil, err
@@ -480,28 +490,28 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 	if !ok {
 		return errors.New("merged file hash mismatch")
 	}
-    // 使用事务确保数据库操作原子性
-    err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
-        task.Status = model.UploadStatusCompleted
-        if err := tx.Save(task).Error; err != nil {
-            return err
-        }
-        fileModel := &model.FileModel{
-            UserID:   task.UserID,
-            FolderID: task.FolderID,
-            Name:     task.FileName,
-            Size:     task.FileSize,
-            Type:     task.FileType,
-            FileHash: task.FileHash,
-        }
-        if err := tx.Create(fileModel).Error; err != nil {
-            return err
-        }
-        return nil
-    })
-    if err != nil {
-        return err
-    }
+	// 使用事务确保数据库操作原子性
+	err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+		task.Status = model.UploadStatusCompleted
+		if err := tx.Save(task).Error; err != nil {
+			return err
+		}
+		fileModel := &model.FileModel{
+			UserID:   task.UserID,
+			FolderID: task.FolderID,
+			Name:     task.FileName,
+			Size:     task.FileSize,
+			Type:     task.FileType,
+			FileHash: task.FileHash,
+		}
+		if err := tx.Create(fileModel).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -578,16 +588,24 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 }
 
 func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
-    cleanedName, err := utils.SanitizeFileName(name)
+	cleanedName, err := utils.SanitizeFileName(name)
 	if err != nil {
 		return 0, err
+	}
+	if folderID > 0 {
+		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return 0, ErrFolderNotFound
+			}
+			return 0, err
+		}
 	}
 	id, err := s.FileRepository.MakeDirectory(folderID, cleanedName, userID)
 	return id, err
 }
 
 func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name string) error {
-    cleanedName, err := utils.SanitizeFileName(name)
+	cleanedName, err := utils.SanitizeFileName(name)
 	if err != nil {
 		return fmt.Errorf("文件名无效: %w", err)
 	}
@@ -733,79 +751,109 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 	})
 }
 
-func (s *fileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error) {
+func (s *fileService) CreatePickUpCode(userID uint, code *model.PickUpCodeModel) (uint, error) {
+	if code.UserID != userID {
+		return 0, ErrPermissionDenied
+	}
+	if code.MaxDownload == 0 || time.Now().After(code.ExpireTime) {
+		return 0, ErrPickupCodeExpired
+	}
+	switch code.Type {
+	case model.PickUpTargetTypeFile:
+		if code.FileID == nil || code.FolderID != nil {
+			return 0, ErrPickupTargetNotFound
+		}
+		if _, err := s.FileRepository.GetFileByFileIDAndUserID(*code.FileID, userID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return 0, ErrPickupTargetNotFound
+			}
+			return 0, err
+		}
+	case model.PickUpTargetTypeFolder:
+		if code.FolderID == nil || code.FileID != nil {
+			return 0, ErrPickupTargetNotFound
+		}
+		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(*code.FolderID, userID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return 0, ErrPickupTargetNotFound
+			}
+			return 0, err
+		}
+	default:
+		return 0, ErrPickupTargetNotFound
+	}
 	id, err := s.FileRepository.CreatePickUpCode(code)
 	return id, err
 }
 
 func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
-    // 先获取分页的 pickup 码列表
-    list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
-    if err != nil {
-        return nil, err
-    }
+	// 先获取分页的 pickup 码列表
+	list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
 
-    // 批量聚合名称：先收集需要的 FileID / FolderID
-    var fileIDs []uint
-    var folderIDs []uint
-    for _, item := range list {
-        if item.FileID != nil {
-            fileIDs = append(fileIDs, *item.FileID)
-        }
-        if item.FolderID != nil {
-            folderIDs = append(folderIDs, *item.FolderID)
-        }
-    }
+	// 批量聚合名称：先收集需要的 FileID / FolderID
+	var fileIDs []uint
+	var folderIDs []uint
+	for _, item := range list {
+		if item.FileID != nil {
+			fileIDs = append(fileIDs, *item.FileID)
+		}
+		if item.FolderID != nil {
+			folderIDs = append(folderIDs, *item.FolderID)
+		}
+	}
 
-    // 通过批量查询获得名称映射，避免 N+1 查询
-    fileMap := make(map[uint]string)
-    if len(fileIDs) > 0 {
-        files, err := s.FileRepository.GetFilesByIDs(fileIDs)
-        if err != nil {
-            return nil, err
-        }
-        for _, f := range files {
-            fileMap[f.ID] = f.Name
-        }
-    }
-    folderMap := make(map[uint]string)
-    if len(folderIDs) > 0 {
-        folders, err := s.FileRepository.GetFoldersByIDs(folderIDs)
-        if err != nil {
-            return nil, err
-        }
-        for _, fd := range folders {
-            folderMap[fd.ID] = fd.Name
-        }
-    }
+	// 通过批量查询获得名称映射，避免 N+1 查询
+	fileMap := make(map[uint]string)
+	if len(fileIDs) > 0 {
+		files, err := s.FileRepository.GetFilesByIDs(fileIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			fileMap[f.ID] = f.Name
+		}
+	}
+	folderMap := make(map[uint]string)
+	if len(folderIDs) > 0 {
+		folders, err := s.FileRepository.GetFoldersByIDs(folderIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, fd := range folders {
+			folderMap[fd.ID] = fd.Name
+		}
+	}
 
-    var voList []vo.PickUpCodeListItem
-    for _, item := range list {
-        var name string
-        if item.FileID != nil {
-            if n, ok := fileMap[*item.FileID]; ok {
-                name = n
-            }
-        } else if item.FolderID != nil {
-            if n, ok := folderMap[*item.FolderID]; ok {
-                name = n
-            }
-        }
-        voList = append(voList, vo.PickUpCodeListItem{
-            ID:          item.ID,
-            Code:        item.Code,
-            FileID:      item.FileID,
-            FolderID:    item.FolderID,
-            Name:        name,
-            Type:        item.Type,
-            Download:    int(item.Download),
-            MaxDownload: int(item.MaxDownload),
-            ExpireTime:  item.ExpireTime,
-            CreatedAt:   item.CreatedAt,
-            Status:      item.Status,
-        })
-    }
-    return voList, nil
+	var voList []vo.PickUpCodeListItem
+	for _, item := range list {
+		var name string
+		if item.FileID != nil {
+			if n, ok := fileMap[*item.FileID]; ok {
+				name = n
+			}
+		} else if item.FolderID != nil {
+			if n, ok := folderMap[*item.FolderID]; ok {
+				name = n
+			}
+		}
+		voList = append(voList, vo.PickUpCodeListItem{
+			ID:          item.ID,
+			Code:        item.Code,
+			FileID:      item.FileID,
+			FolderID:    item.FolderID,
+			Name:        name,
+			Type:        item.Type,
+			Download:    int(item.Download),
+			MaxDownload: int(item.MaxDownload),
+			ExpireTime:  item.ExpireTime,
+			CreatedAt:   item.CreatedAt,
+			Status:      item.Status,
+		})
+	}
+	return voList, nil
 }
 
 func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error) {
@@ -984,7 +1032,7 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 	if setMeta != nil {
 		setMeta(folderModel.Name+".zip", "application/zip")
 	}
-	return s.StreamFolderAsZip(folderModel.ID, writer)
+	return s.StreamFolderAsZip(userID, folderModel.ID, writer)
 }
 
 func generatePublicShareToken() (string, error) {
@@ -1019,7 +1067,7 @@ func (s *fileService) DownloadByPickUpCode(code string, writer io.Writer, setMet
 		if setMeta != nil {
 			setMeta(target.DownloadName, contentType)
 		}
-		if err := s.StreamFolderAsZip(target.FolderID, writer); err != nil {
+		if err := s.StreamFolderAsZip(target.UserID, target.FolderID, writer); err != nil {
 			return err
 		}
 	default:
@@ -1050,7 +1098,7 @@ func (s *fileService) ResolveActivePickUpCode(code string) (*PickUpDownloadTarge
 		if pickupCode.FileID == nil {
 			return nil, ErrPickupTargetNotFound
 		}
-		fileModel, err := s.FileRepository.GetFileByID(*pickupCode.FileID)
+		fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(*pickupCode.FileID, pickupCode.UserID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, ErrPickupTargetNotFound
@@ -1063,6 +1111,7 @@ func (s *fileService) ResolveActivePickUpCode(code string) (*PickUpDownloadTarge
 		}
 		return &PickUpDownloadTarget{
 			CodeID:       pickupCode.ID,
+			UserID:       pickupCode.UserID,
 			Type:         pickupCode.Type,
 			FilePath:     filePath,
 			DownloadName: fileModel.Name,
@@ -1071,7 +1120,7 @@ func (s *fileService) ResolveActivePickUpCode(code string) (*PickUpDownloadTarge
 		if pickupCode.FolderID == nil {
 			return nil, ErrPickupTargetNotFound
 		}
-		folderModel, err := s.FileRepository.GetFolderByID(*pickupCode.FolderID)
+		folderModel, err := s.FileRepository.GetFolderByFolderIDAndUserID(*pickupCode.FolderID, pickupCode.UserID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, ErrPickupTargetNotFound
@@ -1080,6 +1129,7 @@ func (s *fileService) ResolveActivePickUpCode(code string) (*PickUpDownloadTarge
 		}
 		return &PickUpDownloadTarget{
 			CodeID:       pickupCode.ID,
+			UserID:       pickupCode.UserID,
 			Type:         pickupCode.Type,
 			FolderID:     folderModel.ID,
 			DownloadName: folderModel.Name + ".zip",
@@ -1111,28 +1161,28 @@ func (s *fileService) StreamSingleFile(filePath string, writer io.Writer) error 
 	return err
 }
 
-func (s *fileService) StreamFolderAsZip(folderID uint, writer io.Writer) error {
+func (s *fileService) StreamFolderAsZip(userID uint, folderID uint, writer io.Writer) error {
 	zipWriter := zip.NewWriter(writer)
-	rootFolder, err := s.FileRepository.GetFolderByID(folderID)
+	rootFolder, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
 	if err != nil {
 		return err
 	}
-    rootFolderName, err := utils.SanitizeFileName(rootFolder.Name)
-    if err != nil {
-        return err
-    }
-    if err := utils.ValidateZipEntryPath(rootFolderName); err != nil {
-        return err
-    }
-	if err := s.writeFolderToZip(zipWriter, folderID, rootFolderName); err != nil {
+	rootFolderName, err := utils.SanitizeFileName(rootFolder.Name)
+	if err != nil {
+		return err
+	}
+	if err := utils.ValidateZipEntryPath(rootFolderName); err != nil {
+		return err
+	}
+	if err := s.writeFolderToZip(zipWriter, userID, folderID, rootFolderName); err != nil {
 		_ = zipWriter.Close()
 		return err
 	}
 	return zipWriter.Close()
 }
 
-func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zipPrefix string) error {
-	folders, files, err := s.FileRepository.GetChildrenByFolderID(folderID)
+func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, userID uint, folderID uint, zipPrefix string) error {
+	folders, files, err := s.FileRepository.GetChildrenByFolderIDAndUserID(folderID, userID)
 	if err != nil {
 		return err
 	}
@@ -1149,16 +1199,16 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 		if err != nil {
 			return err
 		}
-        cleanedName, err := utils.SanitizeFileName(fileModel.Name)
-        if err != nil {
-            src.Close()
-            return err
-        }
-        entryPath := path.Join(zipPrefix, cleanedName)
-        if err := utils.ValidateZipEntryPath(entryPath); err != nil {
-            src.Close()
-            return err
-        }
+		cleanedName, err := utils.SanitizeFileName(fileModel.Name)
+		if err != nil {
+			src.Close()
+			return err
+		}
+		entryPath := path.Join(zipPrefix, cleanedName)
+		if err := utils.ValidateZipEntryPath(entryPath); err != nil {
+			src.Close()
+			return err
+		}
 		info, statErr := src.Stat()
 		if statErr != nil {
 			src.Close()
@@ -1183,16 +1233,16 @@ func (s *fileService) writeFolderToZip(zipWriter *zip.Writer, folderID uint, zip
 		src.Close()
 	}
 
-        for _, folder := range folders {
-        cleanedFolderName, err := utils.SanitizeFileName(folder.Name)
-        if err != nil {
-            return err
-        }
+	for _, folder := range folders {
+		cleanedFolderName, err := utils.SanitizeFileName(folder.Name)
+		if err != nil {
+			return err
+		}
 		nextPrefix := path.Join(zipPrefix, cleanedFolderName)
 		if err := validateZipEntryPath(nextPrefix); err != nil {
 			return err
 		}
-		if err := s.writeFolderToZip(zipWriter, folder.ID, nextPrefix); err != nil {
+		if err := s.writeFolderToZip(zipWriter, userID, folder.ID, nextPrefix); err != nil {
 			if errors.Is(err, ErrPickupEmptyFolder) {
 				_, _ = zipWriter.Create(nextPrefix + "/")
 				continue

@@ -20,28 +20,28 @@ import (
 
 // Mock FileService
 type mockFileService struct {
-	initUploadFileFunc          func(req *model.UploadTask) (*model.UploadTask, error)
-	uploadFileChunkStreamFunc   func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
-	isAllowedMIMETypeFunc       func(mimeType string) bool
-	mergeUploadedChunksFunc     func(userID uint, taskID uint) error
-	getDashboardOverviewFunc    func(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
-	getListByFolderIDFunc       func(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
-	getListCountByFolderIDFunc  func(folderID uint, userID uint) (int64, error)
-	makeDirectoryFunc           func(folderID uint, name string, userID uint) (uint, error)
-	renameByIDsFunc             func(userID uint, fileID, folderID uint, name string) error
-	moveByIDsFunc               func(userID uint, fileID, folderID, targetFolderID uint) error
-	deleteByIDsFunc             func(userID uint, fileID, folderID uint) error
-	createPickUpCodeFunc        func(code *model.PickUpCodeModel) (uint, error)
-	getPickUpCodeListFunc       func(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error)
-	getPickUpCodeCountFunc      func(userID uint) (int64, error)
-	deletePickUpCodeFunc        func(userID uint, codeID uint) error
-	createPublicShareLinkFunc   func(fileID uint, userID uint) (string, error)
-	getPublicShareLinkFunc      func(fileID uint, userID uint) (string, error)
-	deletePublicShareLinkFunc   func(fileID uint, userID uint) error
-	openPublicShareFunc         func(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
-	previewFileByIDFunc         func(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-	downloadByIDsFunc           func(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
-	downloadByPickUpCodeFunc    func(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	initUploadFileFunc         func(req *model.UploadTask) (*model.UploadTask, error)
+	uploadFileChunkStreamFunc  func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
+	isAllowedMIMETypeFunc      func(mimeType string) bool
+	mergeUploadedChunksFunc    func(userID uint, taskID uint) error
+	getDashboardOverviewFunc   func(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
+	getListByFolderIDFunc      func(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
+	getListCountByFolderIDFunc func(folderID uint, userID uint) (int64, error)
+	makeDirectoryFunc          func(folderID uint, name string, userID uint) (uint, error)
+	renameByIDsFunc            func(userID uint, fileID, folderID uint, name string) error
+	moveByIDsFunc              func(userID uint, fileID, folderID, targetFolderID uint) error
+	deleteByIDsFunc            func(userID uint, fileID, folderID uint) error
+	createPickUpCodeFunc       func(userID uint, code *model.PickUpCodeModel) (uint, error)
+	getPickUpCodeListFunc      func(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error)
+	getPickUpCodeCountFunc     func(userID uint) (int64, error)
+	deletePickUpCodeFunc       func(userID uint, codeID uint) error
+	createPublicShareLinkFunc  func(fileID uint, userID uint) (string, error)
+	getPublicShareLinkFunc     func(fileID uint, userID uint) (string, error)
+	deletePublicShareLinkFunc  func(fileID uint, userID uint) error
+	openPublicShareFunc        func(token string, writer io.Writer, setMeta func(fileName, contentType string)) error
+	previewFileByIDFunc        func(fileID uint, userID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	downloadByIDsFunc          func(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error
+	downloadByPickUpCodeFunc   func(code string, writer io.Writer, setMeta func(fileName, contentType string)) error
 }
 
 func (m *mockFileService) InitUploadFile(req *model.UploadTask) (*model.UploadTask, error) {
@@ -121,9 +121,9 @@ func (m *mockFileService) DeleteByIDs(userID uint, fileID, folderID uint) error 
 	return nil
 }
 
-func (m *mockFileService) CreatePickUpCode(code *model.PickUpCodeModel) (uint, error) {
+func (m *mockFileService) CreatePickUpCode(userID uint, code *model.PickUpCodeModel) (uint, error) {
 	if m.createPickUpCodeFunc != nil {
-		return m.createPickUpCodeFunc(code)
+		return m.createPickUpCodeFunc(userID, code)
 	}
 	return 0, nil
 }
@@ -368,23 +368,23 @@ func TestRenameFileByID_InvalidParams(t *testing.T) {
 		expect string
 	}{
 		{
-			name: "无效JSON",
-			body: "invalid",
+			name:   "无效JSON",
+			body:   "invalid",
 			expect: "1001",
 		},
 		{
-			name: "空名称",
-			body: dto.RenameFileReq{FileID: 1, Name: "   "},
+			name:   "空名称",
+			body:   dto.RenameFileReq{FileID: 1, Name: "   "},
 			expect: "1001",
 		},
 		{
-			name: "同时指定file_id和folder_id",
-			body: dto.RenameFileReq{FileID: 1, FolderID: 2, Name: "newname"},
+			name:   "同时指定file_id和folder_id",
+			body:   dto.RenameFileReq{FileID: 1, FolderID: 2, Name: "newname"},
 			expect: "1001",
 		},
 		{
-			name: "未指定file_id和folder_id",
-			body: dto.RenameFileReq{Name: "newname"},
+			name:   "未指定file_id和folder_id",
+			body:   dto.RenameFileReq{Name: "newname"},
 			expect: "1001",
 		},
 	}
@@ -550,10 +550,10 @@ func TestNormalizePickUpCode(t *testing.T) {
 		{"ABC123", "ABC123", true},
 		{"abc-123", "ABC123", true},
 		{"  abc123  ", "ABC123", true},
-		{"ABCD", "", false},     // 太短
-		{"ABC1234", "", false},  // 太长
-		{"ABC!23", "", false},   // 非法字符
-		{"", "", false},         // 空字符串
+		{"ABCD", "", false},    // 太短
+		{"ABC1234", "", false}, // 太长
+		{"ABC!23", "", false},  // 非法字符
+		{"", "", false},        // 空字符串
 	}
 
 	for _, tt := range tests {
@@ -799,7 +799,8 @@ func TestCreatePickUpCode_InvalidCode(t *testing.T) {
 
 func TestCreatePickUpCode_ValidCode(t *testing.T) {
 	router, mockFileSvc, _, handler := setupFileHandlerTest()
-	mockFileSvc.createPickUpCodeFunc = func(code *model.PickUpCodeModel) (uint, error) {
+	mockFileSvc.createPickUpCodeFunc = func(userID uint, code *model.PickUpCodeModel) (uint, error) {
+		assert.Equal(t, uint(1), userID)
 		return 1, nil
 	}
 	router.POST("/code", setUserIDMiddleware(1), handler.CreatePickUpCode)

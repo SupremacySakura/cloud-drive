@@ -90,7 +90,7 @@ func TestFileRepository_GetFileByHash_NotFound(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
-		WithArgs("nonexistent").
+		WithArgs("nonexistent", 1).
 		WillReturnError(gorm.ErrRecordNotFound)
 
 	file, err := repo.GetFileByHash("nonexistent")
@@ -137,7 +137,7 @@ func TestFileRepository_GetUploadTaskByHashAndUserID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
-		WithArgs("abc123", 1).
+		WithArgs("abc123", 1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "file_name", "file_size", "file_hash", "user_id", "status"}).
 			AddRow(1, "test.txt", 1024, "abc123", 1, model.UploadStatusUploading))
 
@@ -157,7 +157,7 @@ func TestFileRepository_GetFileByFileIDAndUserID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
-		WithArgs(1, 1).
+		WithArgs(1, 1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "folder_id", "name", "size", "type", "file_hash"}).
 			AddRow(1, 1, 1, "test.txt", 1024, "text/plain", "abc123"))
 
@@ -212,7 +212,7 @@ func TestFileRepository_GetUploadTaskByIDAndUserID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
-		WithArgs(1, 1).
+		WithArgs(1, 1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "file_name", "file_size", "user_id"}).
 			AddRow(1, "test.txt", 1024, 1))
 
@@ -275,7 +275,7 @@ func TestFileRepository_GetFolderByFolderIDAndUserID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `folder_models`")).
-		WithArgs(1, 1).
+		WithArgs(1, 1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "name", "user_id"}).
 			AddRow(1, 0, "testfolder", 1))
 
@@ -331,7 +331,8 @@ func TestFileRepository_DeleteFileByIDAndUserID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM `file_models`")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `file_models` SET `deleted_at`=?")).
+		WithArgs(sqlmock.AnyArg(), 1, 1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -348,7 +349,8 @@ func TestFileRepository_DeleteFileByIDAndUserID_NotFound(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("DELETE FROM `file_models`")).
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `file_models` SET `deleted_at`=?")).
+		WithArgs(sqlmock.AnyArg(), 999, 1).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
@@ -433,7 +435,7 @@ func TestFileRepository_GetPickUpCodeByCode(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models`")).
-		WithArgs("ABC123").
+		WithArgs("ABC123", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "code", "user_id", "status"}).
 			AddRow(1, "ABC123", 1, model.PickUpCodeStatusActive))
 
@@ -530,7 +532,7 @@ func TestFileRepository_GetPublicShareLinkByToken(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `public_share_link_models`")).
-		WithArgs("testtoken123").
+		WithArgs("testtoken123", 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "token", "file_id", "user_id"}).
 			AddRow(1, "testtoken123", 1, 1))
 
@@ -568,7 +570,7 @@ func TestFileRepository_GetFileByID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
-		WithArgs(1).
+		WithArgs(1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "name", "size", "file_hash"}).
 			AddRow(1, 1, "test.txt", 1024, "abc123"))
 
@@ -588,7 +590,7 @@ func TestFileRepository_GetFolderByID(t *testing.T) {
 	repo := NewFileRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `folder_models`")).
-		WithArgs(1).
+		WithArgs(1, 1).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "name", "user_id"}).
 			AddRow(1, 0, "root", 1))
 

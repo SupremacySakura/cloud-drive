@@ -77,23 +77,9 @@ describe('request', () => {
     expect(result.headers.Authorization).toBeUndefined()
   })
 
-  it('should handle 401 response by attempting token refresh', async () => {
+  it('should logout and redirect to login on 401', async () => {
     const store = useUserStore()
     store.setToken('old-token')
-    // @ts-expect-error -- Pinia store type inference issue in test
-    store
-      .setRefreshToken('refresh-token-123')(
-        // Mock successful token refresh
-        axios.post as any,
-      )
-      .mockResolvedValueOnce({
-        data: {
-          data: {
-            token: 'new-token-456',
-            refreshToken: 'new-refresh-token',
-          },
-        },
-      })
 
     vi.resetModules()
     const requestModule = await import('../request')
@@ -106,11 +92,10 @@ describe('request', () => {
       config: { headers: {} },
     }
 
-    // 由于 responseInterceptor 是异步的，我们需要等待它
-    await expect(responseInterceptor(mockError)).rejects.toBeDefined()
-
-    // 验证 token 刷新请求被调用
-    expect(axios.post).toHaveBeenCalledWith('/auth/refresh', { refreshToken: 'refresh-token-123' })
+    await expect(responseInterceptor(mockError)).rejects.toBe(mockError)
+    expect(store.token).toBe('')
+    expect(window.location.href).toBe('/login')
+    expect(axios.post).not.toHaveBeenCalled()
   })
 
   it('should logout and redirect to login on 401 when no refresh token', async () => {

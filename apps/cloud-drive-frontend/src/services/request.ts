@@ -26,26 +26,6 @@ function redirectToLogin() {
   window.location.href = '/login'
 }
 
-// token 刷新逻辑：仅在有 refreshToken 时尝试刷新
-async function attemptRefresh(): Promise<boolean> {
-  const store = useUserStore()
-  const refreshToken = (store as any).refreshToken || ''
-  if (!refreshToken) return false
-  try {
-    const res = await axios.post('/auth/refresh', { refreshToken })
-    const data = res?.data?.data || {}
-    if (data?.token) {
-      store.setToken(data.token)
-    }
-    if (data?.refreshToken && (store as any).setRefreshToken) {
-      ;(store as any).setRefreshToken(data.refreshToken)
-    }
-    return true
-  } catch {
-    return false
-  }
-}
-
 // 请求实例
 const request = axios.create({
   timeout: 30000, // 请求超时 30s
@@ -112,23 +92,12 @@ request.interceptors.response.use(
       }
     }
 
-    // 401：尝试刷新令牌
+    // 401：后端当前只提供短期 access token，直接清理登录态
     if (status === 401) {
-      const refreshed = await attemptRefresh()
-      if (refreshed) {
-        ;(config as any)._retryAuth = true
-        const t = useUserStore().token
-        if (t) {
-          config.headers.Authorization = `Bearer ${t}`
-        }
-        return request(config)
-      } else {
-        // 刷新失败，登出
-        showToast('请登录')
-        useUserStore().logout()
-        redirectToLogin()
-        return Promise.reject(error)
-      }
+      showToast('请登录')
+      useUserStore().logout()
+      redirectToLogin()
+      return Promise.reject(error)
     }
 
     return Promise.reject(error)

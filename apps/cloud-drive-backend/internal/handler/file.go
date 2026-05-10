@@ -32,15 +32,15 @@ const (
 // @name Authorization
 
 type FileHandler struct {
-    FileService service.FileService
-    AuthService service.AuthService
+	FileService service.FileService
+	AuthService service.AuthService
 }
 
 func NewFileHandler(fileService service.FileService, authService service.AuthService) *FileHandler {
-    return &FileHandler{
-        FileService: fileService,
-        AuthService: authService,
-    }
+	return &FileHandler{
+		FileService: fileService,
+		AuthService: authService,
+	}
 }
 
 func (h *FileHandler) Register(r *gin.RouterGroup) {
@@ -812,7 +812,7 @@ func (h *FileHandler) CreatePickUpCode(c *gin.Context) {
 		return
 	}
 
-	id, err := h.FileService.CreatePickUpCode(&model.PickUpCodeModel{
+	id, err := h.FileService.CreatePickUpCode(userID, &model.PickUpCodeModel{
 		Code:        code,
 		Status:      model.PickUpCodeStatusActive,
 		UserID:      userID,
@@ -823,6 +823,18 @@ func (h *FileHandler) CreatePickUpCode(c *gin.Context) {
 		ExpireTime:  req.ExpireTime,
 	})
 	if err != nil {
+		if errors.Is(err, service.ErrPickupTargetNotFound) {
+			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "资源不存在")
+			return
+		}
+		if errors.Is(err, service.ErrPermissionDenied) {
+			response.FailWithStatus(c, http.StatusForbidden, response.CodeUnauthorized, "权限不足")
+			return
+		}
+		if errors.Is(err, service.ErrPickupCodeExpired) {
+			response.Fail(c, response.CodeInvalidParam)
+			return
+		}
 		response.Fail(c, response.CodeServerError)
 		return
 	}
