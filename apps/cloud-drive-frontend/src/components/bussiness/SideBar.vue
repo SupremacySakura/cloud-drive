@@ -16,12 +16,14 @@ const props = withDefaults(
     navItems?: NavItem[]
     storagePercent?: number
     storageDetail?: string
+    compact?: boolean
   }>(),
   {
     brandTitle: 'CloudDrive',
     brandSubtitle: 'Cloud Storage Plan',
     storagePercent: 65,
     storageDetail: '85.4 GB of 128 GB used',
+    compact: false,
   },
 )
 
@@ -64,14 +66,18 @@ const iconClass = (to: string) => {
 
 <template>
   <aside
-    class="w-full lg:w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 flex flex-col justify-between"
+    :class="
+      props.compact
+        ? 'h-full w-full border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950'
+        : 'h-full w-64 shrink-0 border-r border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950'
+    "
   >
     <div class="flex flex-col gap-6">
-      <div class="flex flex-col">
+      <div class="flex flex-col gap-1">
         <h1 class="text-slate-900 dark:text-slate-100 text-base font-bold">
           {{ brandTitle }}
         </h1>
-        <p class="text-primary text-xs font-semibold uppercase tracking-wider">
+        <p v-if="brandSubtitle" class="text-primary text-xs font-semibold uppercase tracking-wider">
           {{ brandSubtitle }}
         </p>
       </div>
@@ -86,7 +92,7 @@ const iconClass = (to: string) => {
           :aria-current="isActive(item.to) ? 'page' : undefined"
         >
           <span :class="iconClass(item.to)"><Icon :icon="item.icon" /></span>
-          <span class="text-sm font-medium">{{ item.label }}</span>
+          <span class="whitespace-nowrap text-sm font-medium">{{ item.label }}</span>
         </RouterLink>
       </nav>
     </div>

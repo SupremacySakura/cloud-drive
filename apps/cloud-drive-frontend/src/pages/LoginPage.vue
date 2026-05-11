@@ -71,7 +71,7 @@ const onSubmit = async () => {
     class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen flex flex-col"
   >
     <header
-      class="w-full flex items-center justify-between px-6 py-4 lg:px-10 border-b border-primary/10 bg-white dark:bg-background-dark/50 backdrop-blur-sm sticky top-0 z-50"
+      class="sticky top-0 z-50 flex w-full flex-wrap items-center justify-between gap-3 border-b border-primary/10 bg-white px-4 py-4 backdrop-blur-sm dark:bg-background-dark/50 sm:px-6 lg:px-10"
     >
       <div class="flex items-center gap-2">
         <div class="text-primary flex items-center justify-center">
@@ -88,19 +88,22 @@ const onSubmit = async () => {
             />
           </svg>
         </div>
-        <span class="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100"
+        <span
+          class="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-xl"
           >云盘 -by supremacy</span
         >
       </div>
     </header>
 
-    <main class="flex-1 flex flex-col items-center justify-center px-4 py-12">
+    <main class="flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12">
       <div
         class="w-full max-w-md bg-white dark:bg-slate-900/50 rounded-xl shadow-xl shadow-primary/5 border border-primary/10 overflow-hidden"
       >
-        <div class="p-8">
-          <div class="mb-8">
-            <h1 class="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">欢迎回来</h1>
+        <div class="p-5 sm:p-8">
+          <div class="mb-6 sm:mb-8">
+            <h1 class="mb-2 text-2xl font-black text-slate-900 dark:text-slate-100 sm:text-3xl">
+              欢迎回来
+            </h1>
             <p class="text-slate-500 dark:text-slate-400">登录以继续使用云盘。</p>
           </div>
 
@@ -224,7 +227,7 @@ const onSubmit = async () => {
         </div>
 
         <div
-          class="bg-slate-50 dark:bg-slate-800/50 p-6 text-center border-t border-slate-100 dark:border-slate-800"
+          class="border-t border-slate-100 bg-slate-50 p-5 text-center dark:border-slate-800 dark:bg-slate-800/50 sm:p-6"
         >
           <p class="text-slate-600 dark:text-slate-400">
             还没有账号？

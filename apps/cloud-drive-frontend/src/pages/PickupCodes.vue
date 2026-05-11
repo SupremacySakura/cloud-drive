@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
     class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100"
   >
     <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <div class="flex-1 overflow-y-auto p-6 lg:p-10 space-y-8">
+      <div class="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:space-y-8 lg:p-10">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div class="space-y-1">
             <h2 class="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -259,9 +259,9 @@ onBeforeUnmount(() => {
             </h2>
             <p class="text-slate-500 text-sm">创建、监控并撤销安全的文件提取码。</p>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <button
-              class="flex items-center gap-2 cursor-pointer border border-primary/30 text-primary hover:bg-primary/5 rounded-lg h-11 px-6 font-bold transition-all focus:ring-2 focus:ring-primary/30 focus:outline-none"
+              class="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 px-4 font-bold text-primary transition-all hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 sm:w-auto sm:px-6"
               type="button"
               aria-label="去取件页面"
               @click="goToFilePickup"
@@ -270,7 +270,7 @@ onBeforeUnmount(() => {
               <span>去取件</span>
             </button>
             <button
-              class="flex items-center gap-2 cursor-pointer bg-primary hover:bg-primary/90 text-white rounded-lg h-11 px-6 font-bold transition-all shadow-lg shadow-primary/20 focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              class="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto sm:px-6"
               type="button"
               aria-label="创建新取件码"
               @click="openCreateModal"
@@ -351,7 +351,7 @@ onBeforeUnmount(() => {
           class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
         >
           <div
-            class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-950"
+            class="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
           >
             <h3 class="font-bold text-slate-900 dark:text-white">活跃取件码仓库</h3>
             <div class="flex items-center gap-2">
@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
+            <table class="min-w-[760px] w-full text-left border-collapse">
               <thead
                 class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
               >
@@ -523,7 +523,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            class="px-6 py-4 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between"
+            class="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
           >
             <p class="text-xs text-slate-500">
               Showing
@@ -534,7 +534,7 @@ onBeforeUnmount(() => {
               <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
               items
             </p>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <button
                 class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                 type="button"
@@ -596,10 +596,10 @@ onBeforeUnmount(() => {
         @click.self="handleCloseDetail"
       >
         <div
-          class="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+          class="mx-4 w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900"
         >
           <div
-            class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between"
+            class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:px-6"
           >
             <h3 class="text-lg font-bold text-slate-900 dark:text-white">Pickup Code Details</h3>
             <button
@@ -612,41 +612,41 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="p-6 space-y-4">
+          <div class="space-y-4 p-4 sm:p-6">
             <div class="flex items-center justify-center">
               <div
-                class="font-mono text-2xl font-bold text-slate-900 dark:text-white tracking-widest bg-slate-100 dark:bg-slate-800 px-6 py-3 rounded-lg border border-slate-200 dark:border-slate-700"
+                class="rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 font-mono text-xl font-bold tracking-[0.3em] text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white sm:px-6 sm:text-2xl"
               >
                 {{ selectedItem.code }}
               </div>
             </div>
 
             <div class="space-y-3">
-              <div class="flex justify-between">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <span class="text-slate-500">File Name</span>
                 <span class="font-medium text-slate-900 dark:text-white">{{
                   selectedItem.name
                 }}</span>
               </div>
-              <div class="flex justify-between">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <span class="text-slate-500">Type</span>
                 <span class="font-medium text-slate-900 dark:text-white">{{
                   selectedItem.type
                 }}</span>
               </div>
-              <div class="flex justify-between">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <span class="text-slate-500">Downloads</span>
                 <span class="font-medium text-slate-900 dark:text-white"
                   >{{ selectedItem.download }} / {{ selectedItem.max_download }}</span
                 >
               </div>
-              <div class="flex justify-between">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <span class="text-slate-500">Expiration</span>
                 <span class="font-medium text-slate-900 dark:text-white">{{
                   formatDate(selectedItem.expire_time)
                 }}</span>
               </div>
-              <div class="flex justify-between">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                 <span class="text-slate-500">Status</span>
                 <span
                   class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
@@ -663,7 +663,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            class="px-6 py-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3"
+            class="flex flex-col-reverse gap-3 border-t border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:justify-end sm:px-6"
           >
             <button
               type="button"
@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
     >
       <div
         v-if="showToast"
-        class="fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border"
+        class="fixed left-4 right-4 top-4 z-50 flex items-center gap-3 rounded-xl border px-4 py-4 shadow-2xl sm:left-auto sm:right-4 sm:px-6"
         :class="{
           'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800':
             toastType === 'success',

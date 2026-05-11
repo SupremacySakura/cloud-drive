@@ -150,10 +150,10 @@ onMounted(() => {
 
 <template>
   <div
-    class="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden"
+    class="mx-4 w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900"
   >
     <div
-      class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between"
+      class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:px-6"
     >
       <h3 class="text-lg font-bold text-slate-900 dark:text-white">创建取件码</h3>
       <button
@@ -165,7 +165,7 @@ onMounted(() => {
       </button>
     </div>
 
-    <div class="p-6 space-y-6">
+    <div class="space-y-6 p-4 sm:p-6">
       <div
         v-if="toast"
         class="px-4 py-3 rounded-lg text-sm font-medium border"
@@ -261,7 +261,7 @@ onMounted(() => {
         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
           >有效期
         </label>
-        <div class="flex gap-2">
+        <div class="grid grid-cols-2 gap-2 sm:flex">
           <button
             v-for="days in expireDayOptions"
             :key="days"
@@ -283,7 +283,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="px-6 py-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
+    <div
+      class="flex flex-col-reverse gap-3 border-t border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:justify-end sm:px-6"
+    >
       <button
         type="button"
         class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"

@@ -170,7 +170,7 @@ watch(
   >
     <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
 
-    <main v-else class="p-8 space-y-8">
+    <main v-else class="space-y-6 p-4 sm:p-6 lg:space-y-8 lg:p-8">
       <!-- Welcome and Quick Actions -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -282,22 +282,22 @@ watch(
           <div
             v-for="activity in recentActivities"
             :key="activity.id"
-            class="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+            class="flex flex-col gap-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 sm:flex-row sm:items-center sm:justify-between"
           >
-            <div class="flex items-center gap-4">
+            <div class="flex min-w-0 items-center gap-4">
               <div
                 class="w-10 h-10 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
               >
                 <Icon :icon="activity.icon" class="text-2xl text-slate-500" />
               </div>
-              <div>
-                <p class="text-sm font-semibold">{{ activity.name }}</p>
-                <p class="text-xs text-slate-500">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold">{{ activity.name }}</p>
+                <p class="truncate text-xs text-slate-500">
                   {{ activity.desc }} <span class="text-primary">{{ activity.highlight }}</span>
                 </p>
               </div>
             </div>
-            <div class="text-right">
+            <div class="text-left sm:text-right">
               <p class="text-xs text-slate-400">{{ activity.time }}</p>
               <p class="text-xs font-medium text-slate-600 dark:text-slate-400 mt-1">
                 {{ activity.size }}

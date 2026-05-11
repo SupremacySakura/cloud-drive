@@ -218,10 +218,10 @@ const badgeClass = (item: QueueItem) => {
   >
     <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
     <template v-else>
-      <main class="flex-1 overflow-y-auto p-8 space-y-8">
+      <main class="flex-1 overflow-y-auto p-4 space-y-6 sm:p-6 lg:space-y-8 lg:p-8">
         <section>
           <div
-            class="mb-4 flex items-center justify-between gap-3 rounded-xl border border-primary/15 bg-white/70 dark:bg-slate-900/60 px-4 py-3"
+            class="mb-4 flex flex-col gap-3 rounded-xl border border-primary/15 bg-white/70 px-4 py-3 dark:bg-slate-900/60 sm:flex-row sm:items-center sm:justify-between"
           >
             <div class="min-w-0">
               <p class="text-xs text-slate-500 dark:text-slate-400">上传目录</p>
@@ -281,13 +281,13 @@ const badgeClass = (item: QueueItem) => {
           @click="closeFolderPicker"
         >
           <div
-            class="w-full max-w-2xl rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-xl"
+            class="flex max-h-[min(80vh,42rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-950 sm:p-6"
             @click.stop
           >
             <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100">选择上传目录</h3>
             <p class="mt-1 text-sm text-slate-500">默认上传到 root，可切换到任意已有文件夹。</p>
 
-            <div class="mt-4 flex items-center justify-between gap-3">
+            <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <nav class="flex items-center gap-2 overflow-x-auto text-xs text-slate-500">
                 <template v-for="(bc, idx) in folderPickerBreadcrumbs" :key="`${bc.id}-${idx}`">
                   <button
@@ -323,7 +323,7 @@ const badgeClass = (item: QueueItem) => {
             </div>
 
             <div
-              class="mt-4 rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden"
+              class="mt-4 min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800"
             >
               <div class="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                 <div v-if="isFolderPickerLoading" class="p-4 text-sm text-slate-500">
@@ -383,9 +383,9 @@ const badgeClass = (item: QueueItem) => {
         </div>
 
         <section class="space-y-4">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100">上传队列</h3>
-            <div class="flex items-center gap-4">
+            <div class="flex flex-wrap items-center gap-3 sm:gap-4">
               <span class="text-sm text-slate-500">{{ processingCount }} 项处理中</span>
               <button
                 class="text-sm font-bold text-primary hover:underline focus:ring-2 focus:ring-primary/30 focus:outline-none rounded px-1"
@@ -411,7 +411,7 @@ const badgeClass = (item: QueueItem) => {
             <div
               v-for="item in items"
               :key="item.id"
-              class="flex items-center p-4 border-b border-primary/5 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+              class="flex flex-col gap-4 border-b border-primary/5 p-4 transition-colors last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 sm:flex-row sm:items-center"
             >
               <div
                 class="size-12 rounded-lg flex items-center justify-center shrink-0"
@@ -420,7 +420,7 @@ const badgeClass = (item: QueueItem) => {
                 <Icon :icon="iconForFile(item.file).icon" />
               </div>
 
-              <div class="ml-4 flex-1 min-w-0">
+              <div class="min-w-0 flex-1 sm:ml-4">
                 <div class="flex items-center justify-between mb-1">
                   <p class="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
                     {{ item.file.name }}
@@ -433,7 +433,7 @@ const badgeClass = (item: QueueItem) => {
                   </span>
                 </div>
 
-                <div class="flex items-center gap-3">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                   <div class="flex-1 bg-primary/10 h-1.5 rounded-full overflow-hidden">
                     <div
                       class="h-1.5 rounded-full"
@@ -447,7 +447,7 @@ const badgeClass = (item: QueueItem) => {
                 </div>
               </div>
 
-              <div class="ml-6 flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2 sm:ml-6 sm:justify-end">
                 <button
                   v-if="item.status === 'failed'"
                   class="flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3 py-1.5 rounded-lg text-xs transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none"

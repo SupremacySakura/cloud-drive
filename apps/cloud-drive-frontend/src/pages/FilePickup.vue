@@ -147,25 +147,25 @@ const handleRetrieve = async () => {
   <div
     class="bg-[#f6f8f7] dark:bg-[#10221b] text-slate-900 dark:text-slate-100 min-h-screen flex flex-col font-sans relative z-0"
   >
-    <main class="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 relative z-10">
+    <main class="relative z-10 flex flex-1 flex-col items-center justify-center p-4 sm:p-8 lg:p-12">
       <!-- Main Container -->
       <div class="w-full max-w-[480px] space-y-8">
         <!-- Entry Card -->
         <div
-          class="bg-white dark:bg-slate-900/50 p-8 rounded-xl border border-primary/10 shadow-xl shadow-primary/5"
+          class="rounded-xl border border-primary/10 bg-white p-5 shadow-xl shadow-primary/5 dark:bg-slate-900/50 sm:p-8"
         >
           <div class="text-center mb-8">
             <h1 class="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">文件取件</h1>
             <p class="text-slate-500 dark:text-slate-400">请输入您的 6 位提取码获取文件</p>
           </div>
           <div class="space-y-6">
-            <div class="flex justify-between gap-2 sm:gap-4">
+            <div class="grid grid-cols-6 gap-2 sm:gap-4">
               <input
                 v-for="(_, index) in codeDigits"
                 :key="index"
                 :ref="el => setInputRef(el as HTMLInputElement | null, index)"
                 :aria-label="`取件码第${index + 1}位`"
-                class="w-full aspect-square text-center text-2xl font-bold rounded-lg border-2 border-slate-200 dark:border-slate-700 bg-transparent focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-all uppercase"
+                class="aspect-square min-w-0 w-full rounded-lg border-2 border-slate-200 bg-transparent text-center text-xl font-bold uppercase transition-all focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none dark:border-slate-700 sm:text-2xl"
                 maxlength="1"
                 inputmode="text"
                 placeholder="·"
@@ -205,7 +205,7 @@ const handleRetrieve = async () => {
             <h3 class="text-sm font-bold uppercase tracking-wider text-slate-500">已提取文件</h3>
           </div>
           <div
-            class="bg-white dark:bg-slate-900/50 p-6 rounded-xl border border-primary/20 shadow-lg flex flex-col sm:flex-row items-center gap-6"
+            class="flex flex-col items-center gap-5 rounded-xl border border-primary/20 bg-white p-5 shadow-lg dark:bg-slate-900/50 sm:flex-row sm:gap-6 sm:p-6"
           >
             <div
               class="h-20 w-16 rounded-lg border flex items-center justify-center flex-shrink-0 relative overflow-hidden group"

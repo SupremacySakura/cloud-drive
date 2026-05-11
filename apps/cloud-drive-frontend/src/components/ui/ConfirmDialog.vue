@@ -75,7 +75,7 @@ watch(
         </h3>
         <p v-if="message" class="text-sm text-slate-600 dark:text-slate-300 mb-5">{{ message }}</p>
 
-        <div class="flex justify-end gap-3">
+        <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:ring-2 focus:ring-slate-400 focus:outline-none"
             type="button"

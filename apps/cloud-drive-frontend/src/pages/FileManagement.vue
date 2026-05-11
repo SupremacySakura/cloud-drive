@@ -68,6 +68,7 @@ type ViewMode = 'list' | 'grid'
 type SortKey = 'name' | 'size' | 'modified'
 type SortDirection = 'asc' | 'desc'
 type PreviewKind = 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'unsupported'
+type FileFilterKey = 'all' | 'folder' | 'image' | 'video' | 'audio' | 'document' | 'other'
 
 type BreadcrumbItem = { id: number; name: string }
 type DisplayItem = FileListItem & {
@@ -79,6 +80,7 @@ type DisplayItem = FileListItem & {
 }
 
 const viewMode = ref<ViewMode>('list')
+const isFilterOpen = ref(false)
 const isSortOpen = ref(false)
 const sortKey = ref<SortKey>('name')
 const sortDirection = ref<SortDirection>('asc')
@@ -158,6 +160,17 @@ const jumpToPageInput = ref('')
 const MAX_CONCURRENT_UPLOADS = 3
 
 const rawItems = ref<FileListItem[]>([])
+const activeFilter = ref<FileFilterKey>('all')
+
+const fileFilterOptions: Array<{ key: FileFilterKey; label: string }> = [
+  { key: 'all', label: '全部类型' },
+  { key: 'folder', label: '文件夹' },
+  { key: 'image', label: '图片' },
+  { key: 'video', label: '视频' },
+  { key: 'audio', label: '音频' },
+  { key: 'document', label: '文档' },
+  { key: 'other', label: '其他' },
+]
 
 const iconForItem = (item: FileListItem) => {
   const meta = iconForListItem(item)
@@ -223,6 +236,12 @@ const clearSearch = () => {
   }
 }
 
+const matchesActiveFilter = (item: DisplayItem) => {
+  if (activeFilter.value === 'all') return true
+  if (activeFilter.value === 'folder') return item.type === 'folder'
+  return item.type === 'file' && item.file_type === activeFilter.value
+}
+
 const sortedFiles = computed(() => {
   const dir = sortDirection.value === 'asc' ? 1 : -1
   const mapped: DisplayItem[] = rawItems.value.map(item => {
@@ -237,7 +256,8 @@ const sortedFiles = computed(() => {
   })
   // 按搜索关键词过滤
   const query = debouncedSearchQuery.value.trim().toLowerCase()
-  const filtered = query ? mapped.filter(item => item.name.toLowerCase().includes(query)) : mapped
+  const searched = query ? mapped.filter(item => item.name.toLowerCase().includes(query)) : mapped
+  const filtered = searched.filter(matchesActiveFilter)
   const data = filtered
   data.sort((a, b) => {
     if (sortKey.value === 'name') return dir * a.name.localeCompare(b.name)
@@ -245,6 +265,10 @@ const sortedFiles = computed(() => {
     return dir * a.updated_at.localeCompare(b.updated_at)
   })
   return data
+})
+
+const activeFilterLabel = computed(() => {
+  return fileFilterOptions.find(option => option.key === activeFilter.value)?.label || '全部类型'
 })
 
 const currentFolderName = computed(
@@ -346,6 +370,12 @@ const setSort = (key: SortKey) => {
   sortKey.value = key
   sortDirection.value = 'asc'
   isSortOpen.value = false
+}
+
+const setFilter = (key: FileFilterKey) => {
+  activeFilter.value = key
+  isFilterOpen.value = false
+  selectedIds.value = new Set()
 }
 
 const sortLabel = computed(() => {
@@ -580,6 +610,7 @@ const copyPublicShareLink = async () => {
 }
 
 const closeOverlays = () => {
+  isFilterOpen.value = false
   isSortOpen.value = false
   openMenuId.value = null
   menuTargetFile.value = null
@@ -1201,10 +1232,12 @@ onBeforeUnmount(() => {
     <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
     <template v-else>
       <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div class="flex-1 overflow-y-auto p-8">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div
+            class="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-center lg:justify-between"
+          >
             <div>
-              <nav class="flex items-center gap-2 text-sm text-slate-500 mb-2">
+              <nav class="mb-2 flex items-center gap-2 overflow-x-auto text-sm text-slate-500">
                 <button
                   class="hover:text-primary flex items-center focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
                   type="button"
@@ -1236,7 +1269,7 @@ onBeforeUnmount(() => {
               <p v-if="errorMessage" class="mt-2 text-sm text-red-500">{{ errorMessage }}</p>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <!-- 隐藏的文件输入框 -->
               <input
                 ref="fileInputRef"
@@ -1264,8 +1297,29 @@ onBeforeUnmount(() => {
                 新建文件夹
               </button>
 
+              <div class="flex flex-wrap items-center gap-3 sm:hidden">
+                <button
+                  class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  type="button"
+                  aria-label="上传文件"
+                  @click="openFileDialog"
+                >
+                  <Icon class="text-[20px]" icon="material-symbols:upload" />
+                  上传文件
+                </button>
+                <button
+                  class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+                  type="button"
+                  aria-label="上传文件夹"
+                  @click="openFolderDialog"
+                >
+                  <Icon icon="material-symbols:folder" />
+                  上传文件夹
+                </button>
+              </div>
+
               <!-- 上传下拉菜单 -->
-              <div class="relative group">
+              <div class="relative hidden sm:block group">
                 <button
                   class="flex items-center gap-2 px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all focus:ring-2 focus:ring-primary/50 focus:outline-none"
                   type="button"
@@ -1274,7 +1328,6 @@ onBeforeUnmount(() => {
                   <Icon class="text-[20px]" icon="material-symbols:upload" />
                   上传
                 </button>
-                <!-- 下拉选项 -->
                 <div
                   class="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 py-2"
                 >
@@ -1330,9 +1383,9 @@ onBeforeUnmount(() => {
           <div
             class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 mb-6 p-3 flex flex-wrap items-center justify-between gap-4 shadow-sm"
           >
-            <div class="flex items-center gap-2">
+            <div class="flex w-full flex-wrap items-center gap-2 lg:w-auto">
               <!-- 搜索框 -->
-              <div class="relative">
+              <div class="relative w-full sm:w-auto">
                 <Icon
                   class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"
                   icon="material-symbols:search"
@@ -1342,7 +1395,7 @@ onBeforeUnmount(() => {
                   type="text"
                   placeholder="搜索文件..."
                   aria-label="搜索文件"
-                  class="pl-9 pr-8 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary w-48 placeholder:text-slate-400"
+                  class="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:w-48"
                   @input="onSearchInput(($event.target as HTMLInputElement).value)"
                 />
                 <button
@@ -1356,7 +1409,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
 
-              <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-1"></div>
+              <div class="mx-1 hidden h-6 w-px bg-slate-200 dark:bg-slate-800 sm:block"></div>
 
               <button
                 class="p-2 rounded-lg"
@@ -1385,16 +1438,47 @@ onBeforeUnmount(() => {
                 <Icon icon="material-symbols:grid-view" aria-hidden="true" />
               </button>
 
-              <div class="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-2"></div>
+              <div class="mx-2 hidden h-6 w-px bg-slate-200 dark:bg-slate-800 sm:block"></div>
 
-              <button
-                class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:ring-2 focus:ring-primary/30 focus:outline-none"
-                type="button"
-                aria-label="筛选文件"
-              >
-                <Icon class="text-[18px]" icon="material-symbols:filter-list" />
-                筛选
-              </button>
+              <div class="relative" @click="onStopPropagation">
+                <button
+                  class="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-slate-200 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:text-slate-400 dark:hover:border-slate-800 dark:hover:bg-slate-900"
+                  :class="
+                    activeFilter !== 'all'
+                      ? 'border-primary/20 bg-primary/10 text-primary hover:border-primary/20 hover:bg-primary/10 dark:hover:border-primary/20'
+                      : ''
+                  "
+                  type="button"
+                  aria-label="筛选文件"
+                  @click="
+                    isFilterOpen = !isFilterOpen
+                    isSortOpen = false
+                  "
+                >
+                  <Icon class="text-[18px]" icon="material-symbols:filter-list" />
+                  {{ activeFilter === 'all' ? '筛选' : activeFilterLabel }}
+                </button>
+
+                <div
+                  v-if="isFilterOpen"
+                  class="absolute left-0 top-full z-20 mt-2 w-44 rounded-xl border border-slate-200 bg-white py-2 shadow-xl dark:border-slate-800 dark:bg-slate-950"
+                >
+                  <button
+                    v-for="option in fileFilterOptions"
+                    :key="option.key"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900"
+                    type="button"
+                    @click="setFilter(option.key)"
+                  >
+                    <span>{{ option.label }}</span>
+                    <Icon
+                      v-if="activeFilter === option.key"
+                      icon="material-symbols:check-rounded"
+                      class="text-primary"
+                    />
+                  </button>
+                </div>
+              </div>
 
               <div
                 v-if="selectedCount > 0"
@@ -1418,13 +1502,18 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="relative" @click="onStopPropagation">
-              <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
+            <div class="relative w-full sm:w-auto" @click="onStopPropagation">
+              <div
+                class="flex items-center gap-2 text-xs font-medium text-slate-400 sm:justify-end"
+              >
                 <span>Sorted by</span>
                 <button
                   class="flex items-center gap-1 text-slate-900 dark:text-slate-100 hover:text-primary"
                   type="button"
-                  @click="isSortOpen = !isSortOpen"
+                  @click="
+                    isSortOpen = !isSortOpen
+                    isFilterOpen = false
+                  "
                 >
                   {{ sortLabel }}
                   <Icon class="text-sm" icon="material-symbols:expand-more" />
@@ -1468,219 +1557,225 @@ onBeforeUnmount(() => {
             v-if="viewMode === 'list'"
             class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
           >
-            <table class="w-full text-left border-collapse">
-              <thead
-                class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
-              >
-                <tr>
-                  <th scope="col" class="py-4 px-6 w-10">
-                    <input
-                      class="rounded border-slate-300 text-primary focus:ring-primary/20"
-                      type="checkbox"
-                      :checked="allSelected"
-                      @change="toggleAll(($event.target as HTMLInputElement).checked)"
-                    />
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
-                  >
-                    Name
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell"
-                  >
-                    Type
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell"
-                  >
-                    Size
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell"
-                  >
-                    Owner
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
-                  >
-                    Last Modified
-                  </th>
-                  <th
-                    scope="col"
-                    class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500"
-                  >
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                <tr
-                  v-if="hasParentFolder"
-                  class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors cursor-pointer"
-                  role="button"
-                  tabindex="0"
-                  @click="goToParentFolder"
-                  @keyup.enter="goToParentFolder"
+            <div class="overflow-x-auto">
+              <table class="min-w-[720px] w-full text-left border-collapse">
+                <thead
+                  class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
                 >
-                  <td class="py-4 px-6"></td>
-                  <td class="py-4 px-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 rounded flex items-center justify-center bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                      >
-                        <Icon icon="material-symbols:folder" />
-                      </div>
-                      <span
-                        class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs"
-                      >
-                        ..
-                      </span>
-                    </div>
-                  </td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">文件夹</td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">-</td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden lg:table-cell">-</td>
-                  <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">返回上一级目录</td>
-                  <td class="py-4 px-6"></td>
-                </tr>
-                <tr
-                  v-for="file in sortedFiles"
-                  :key="file.id"
-                  class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
-                  :class="file.type === 'folder' ? 'cursor-pointer' : ''"
-                  :role="file.type === 'folder' ? 'button' : undefined"
-                  :tabindex="file.type === 'folder' ? 0 : undefined"
-                  @click="onRowClick(file)"
-                  @keyup.enter="file.type === 'folder' ? onRowClick(file) : undefined"
-                >
-                  <td class="py-4 px-6">
-                    <input
-                      class="rounded border-slate-300 text-primary focus:ring-primary/20"
-                      type="checkbox"
-                      :checked="selectedIds.has(file.id)"
-                      @click.stop
-                      @change="
-                        toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)
-                      "
-                    />
-                  </td>
-                  <td class="py-4 px-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 rounded flex items-center justify-center"
-                        :class="`${file.iconBg} ${file.iconFg}`"
-                      >
-                        <Icon :icon="file.icon" />
-                      </div>
-                      <span
-                        class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs"
-                      >
-                        {{ file.name }}
-                      </span>
-                    </div>
-                  </td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">
-                    {{ file.typeLabel }}
-                  </td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">
-                    {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}
-                  </td>
-                  <td class="py-4 px-4 hidden lg:table-cell">
-                    <div class="flex items-center gap-2">
-                      <div
-                        class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold"
-                      >
-                        {{ ownerInitials('Me') }}
-                      </div>
-                      <span class="text-sm text-slate-600 dark:text-slate-400">Me</span>
-                    </div>
-                  </td>
-                  <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">
-                    {{ file.lastModifiedText }}
-                  </td>
-                  <td class="py-4 px-6 text-right" @click="onStopPropagation">
-                    <button
-                      class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
-                      type="button"
-                      aria-label="文件操作菜单"
-                      @click="e => openFileMenu(file, e)"
-                    >
-                      <Icon icon="material-symbols:more-vert" aria-hidden="true" />
-                    </button>
-                  </td>
-                </tr>
-
-                <tr v-if="isLoading" class="">
-                  <td colspan="7" class="py-16">
-                    <div class="flex flex-col items-center justify-center text-center">
-                      <Icon
-                        icon="material-symbols:progress-activity"
-                        class="text-4xl animate-spin text-primary mb-3"
+                  <tr>
+                    <th scope="col" class="py-4 px-6 w-10">
+                      <input
+                        class="rounded border-slate-300 text-primary focus:ring-primary/20"
+                        type="checkbox"
+                        :checked="allSelected"
+                        @change="toggleAll(($event.target as HTMLInputElement).checked)"
                       />
-                      <p class="text-sm text-slate-400">加载中...</p>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="sortedFiles.length === 0 && !isLoading" class="">
-                  <td colspan="7" class="py-20">
-                    <div class="flex flex-col items-center justify-center text-center">
-                      <!-- 插图：同心圆装饰 -->
-                      <div class="relative mb-6">
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                    >
+                      Name
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell"
+                    >
+                      Type
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell"
+                    >
+                      Size
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell"
+                    >
+                      Owner
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                    >
+                      Last Modified
+                    </th>
+                    <th
+                      scope="col"
+                      class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500"
+                    >
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tr
+                    v-if="hasParentFolder"
+                    class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors cursor-pointer"
+                    role="button"
+                    tabindex="0"
+                    @click="goToParentFolder"
+                    @keyup.enter="goToParentFolder"
+                  >
+                    <td class="py-4 px-6"></td>
+                    <td class="py-4 px-4">
+                      <div class="flex items-center gap-3">
                         <div
-                          class="w-28 h-28 rounded-full bg-primary/5 flex items-center justify-center"
+                          class="w-10 h-10 rounded flex items-center justify-center bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                         >
-                          <div
-                            class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center"
-                          >
-                            <Icon
-                              class="text-primary text-4xl"
-                              :icon="
-                                debouncedSearchQuery
-                                  ? 'material-symbols:search-off'
-                                  : 'material-symbols:cloud-upload-outline'
-                              "
-                            />
-                          </div>
+                          <Icon icon="material-symbols:folder" />
                         </div>
-                        <div
-                          class="absolute top-1 right-1 w-3 h-3 rounded-full bg-primary/20"
-                        ></div>
-                        <div
-                          class="absolute bottom-3 left-0 w-2 h-2 rounded-full bg-primary/15"
-                        ></div>
+                        <span
+                          class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs"
+                        >
+                          ..
+                        </span>
                       </div>
-                      <p class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">
-                        {{ debouncedSearchQuery ? '没有找到匹配的文件' : '还没有文件' }}
-                      </p>
-                      <p class="text-sm text-slate-400 dark:text-slate-500 mb-5">
-                        {{
-                          debouncedSearchQuery ? '试试其他关键词' : '点击上传按钮，开始管理你的文件'
-                        }}
-                      </p>
+                    </td>
+                    <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">文件夹</td>
+                    <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">-</td>
+                    <td class="py-4 px-4 text-sm text-slate-500 hidden lg:table-cell">-</td>
+                    <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">
+                      返回上一级目录
+                    </td>
+                    <td class="py-4 px-6"></td>
+                  </tr>
+                  <tr
+                    v-for="file in sortedFiles"
+                    :key="file.id"
+                    class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
+                    :class="file.type === 'folder' ? 'cursor-pointer' : ''"
+                    :role="file.type === 'folder' ? 'button' : undefined"
+                    :tabindex="file.type === 'folder' ? 0 : undefined"
+                    @click="onRowClick(file)"
+                    @keyup.enter="file.type === 'folder' ? onRowClick(file) : undefined"
+                  >
+                    <td class="py-4 px-6">
+                      <input
+                        class="rounded border-slate-300 text-primary focus:ring-primary/20"
+                        type="checkbox"
+                        :checked="selectedIds.has(file.id)"
+                        @click.stop
+                        @change="
+                          toggleOne(String(file.id), ($event.target as HTMLInputElement).checked)
+                        "
+                      />
+                    </td>
+                    <td class="py-4 px-4">
+                      <div class="flex items-center gap-3">
+                        <div
+                          class="w-10 h-10 rounded flex items-center justify-center"
+                          :class="`${file.iconBg} ${file.iconFg}`"
+                        >
+                          <Icon :icon="file.icon" />
+                        </div>
+                        <span
+                          class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[150px] md:max-w-xs"
+                        >
+                          {{ file.name }}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">
+                      {{ file.typeLabel }}
+                    </td>
+                    <td class="py-4 px-4 text-sm text-slate-500 hidden sm:table-cell">
+                      {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}
+                    </td>
+                    <td class="py-4 px-4 hidden lg:table-cell">
+                      <div class="flex items-center gap-2">
+                        <div
+                          class="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[10px] font-bold"
+                        >
+                          {{ ownerInitials('Me') }}
+                        </div>
+                        <span class="text-sm text-slate-600 dark:text-slate-400">Me</span>
+                      </div>
+                    </td>
+                    <td class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap">
+                      {{ file.lastModifiedText }}
+                    </td>
+                    <td class="py-4 px-6 text-right" @click="onStopPropagation">
                       <button
-                        v-if="!debouncedSearchQuery"
-                        class="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                        class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
                         type="button"
-                        @click="openFileDialog"
+                        aria-label="文件操作菜单"
+                        @click="e => openFileMenu(file, e)"
                       >
-                        <Icon class="text-[20px]" icon="material-symbols:upload" />
-                        上传文件
+                        <Icon icon="material-symbols:more-vert" aria-hidden="true" />
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                  </tr>
+
+                  <tr v-if="isLoading" class="">
+                    <td colspan="7" class="py-16">
+                      <div class="flex flex-col items-center justify-center text-center">
+                        <Icon
+                          icon="material-symbols:progress-activity"
+                          class="text-4xl animate-spin text-primary mb-3"
+                        />
+                        <p class="text-sm text-slate-400">加载中...</p>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="sortedFiles.length === 0 && !isLoading" class="">
+                    <td colspan="7" class="py-20">
+                      <div class="flex flex-col items-center justify-center text-center">
+                        <!-- 插图：同心圆装饰 -->
+                        <div class="relative mb-6">
+                          <div
+                            class="w-28 h-28 rounded-full bg-primary/5 flex items-center justify-center"
+                          >
+                            <div
+                              class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center"
+                            >
+                              <Icon
+                                class="text-primary text-4xl"
+                                :icon="
+                                  debouncedSearchQuery
+                                    ? 'material-symbols:search-off'
+                                    : 'material-symbols:cloud-upload-outline'
+                                "
+                              />
+                            </div>
+                          </div>
+                          <div
+                            class="absolute top-1 right-1 w-3 h-3 rounded-full bg-primary/20"
+                          ></div>
+                          <div
+                            class="absolute bottom-3 left-0 w-2 h-2 rounded-full bg-primary/15"
+                          ></div>
+                        </div>
+                        <p class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                          {{ debouncedSearchQuery ? '没有找到匹配的文件' : '还没有文件' }}
+                        </p>
+                        <p class="text-sm text-slate-400 dark:text-slate-500 mb-5">
+                          {{
+                            debouncedSearchQuery
+                              ? '试试其他关键词'
+                              : '点击上传按钮，开始管理你的文件'
+                          }}
+                        </p>
+                        <button
+                          v-if="!debouncedSearchQuery"
+                          class="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+                          type="button"
+                          @click="openFileDialog"
+                        >
+                          <Icon class="text-[20px]" icon="material-symbols:upload" />
+                          上传文件
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
             <div
-              class="px-6 py-4 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between"
+              class="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
             >
               <p class="text-xs text-slate-500">
                 Showing
@@ -1691,7 +1786,7 @@ onBeforeUnmount(() => {
                 <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
                 items
               </p>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <button
                   class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
@@ -1884,7 +1979,7 @@ onBeforeUnmount(() => {
             <!-- 网格视图分页 -->
             <div
               v-if="sortedFiles.length > 0"
-              class="mt-6 px-6 py-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between"
+              class="mt-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
             >
               <p class="text-xs text-slate-500">
                 Showing
@@ -1895,7 +1990,7 @@ onBeforeUnmount(() => {
                 <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
                 items
               </p>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <button
                   class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
                   type="button"
