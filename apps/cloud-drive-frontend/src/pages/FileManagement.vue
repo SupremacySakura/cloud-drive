@@ -378,6 +378,16 @@ const setFilter = (key: FileFilterKey) => {
   selectedIds.value = new Set()
 }
 
+const toggleFilterMenu = () => {
+  isFilterOpen.value = !isFilterOpen.value
+  isSortOpen.value = false
+}
+
+const toggleSortMenu = () => {
+  isSortOpen.value = !isSortOpen.value
+  isFilterOpen.value = false
+}
+
 const sortLabel = computed(() => {
   if (sortKey.value === 'name') return 'Name'
   if (sortKey.value === 'size') return 'Size'
@@ -1450,10 +1460,7 @@ onBeforeUnmount(() => {
                   "
                   type="button"
                   aria-label="筛选文件"
-                  @click="
-                    isFilterOpen = !isFilterOpen
-                    isSortOpen = false
-                  "
+                  @click="toggleFilterMenu"
                 >
                   <Icon class="text-[18px]" icon="material-symbols:filter-list" />
                   {{ activeFilter === 'all' ? '筛选' : activeFilterLabel }}
@@ -1510,10 +1517,7 @@ onBeforeUnmount(() => {
                 <button
                   class="flex items-center gap-1 text-slate-900 dark:text-slate-100 hover:text-primary"
                   type="button"
-                  @click="
-                    isSortOpen = !isSortOpen
-                    isFilterOpen = false
-                  "
+                  @click="toggleSortMenu"
                 >
                   {{ sortLabel }}
                   <Icon class="text-sm" icon="material-symbols:expand-more" />

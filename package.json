@@ -1,18 +1,22 @@
 {
   "name": "cloud-drive",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.15.4",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "pnpm --filter cloud-drive-frontend build",
+    "build:backend": "cd apps/cloud-drive-backend && go build ./...",
     "typecheck": "pnpm --filter cloud-drive-frontend typecheck",
-    "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx}\"",
+    "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx,vue}\"",
     "clean": "tsc -b --clean",
     "prepare": "husky",
-    "test": "pnpm --filter cloud-drive-frontend test:run"
+    "test": "pnpm --filter cloud-drive-frontend test:run",
+    "test:backend": "cd apps/cloud-drive-backend && go test ./...",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:backend && pnpm test:backend"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
