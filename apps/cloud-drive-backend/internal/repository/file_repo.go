@@ -458,7 +458,8 @@ func (r *FileRepository) GetChildrenByFolderIDAndUserID(folderID uint, userID ui
 }
 
 func (r *FileRepository) IncrementDownloadAndMaybeExpire(codeID uint, now time.Time) error {
-	return r.DB.Transaction(func(tx *gorm.DB) error {
+	expired := false
+	err := r.DB.Transaction(func(tx *gorm.DB) error {
 		var code model.PickUpCodeModel
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ?", codeID).
@@ -467,14 +468,16 @@ func (r *FileRepository) IncrementDownloadAndMaybeExpire(codeID uint, now time.T
 		}
 
 		if code.Status != model.PickUpCodeStatusActive {
-			return errors.New("pickup code expired")
+			expired = true
+			return nil
 		}
 		if now.After(code.ExpireTime) || code.Download >= code.MaxDownload {
 			code.Status = model.PickUpCodeStatusExpire
 			if err := tx.Save(&code).Error; err != nil {
 				return err
 			}
-			return errors.New("pickup code expired")
+			expired = true
+			return nil
 		}
 
 		code.Download++
@@ -483,6 +486,13 @@ func (r *FileRepository) IncrementDownloadAndMaybeExpire(codeID uint, now time.T
 		}
 		return tx.Save(&code).Error
 	})
+	if err != nil {
+		return err
+	}
+	if expired {
+		return errors.New("pickup code expired")
+	}
+	return nil
 }
 
 // DeleteExpiredChunks 删除已过期但未完成的上传分片及其任务记录

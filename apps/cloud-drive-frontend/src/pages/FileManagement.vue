@@ -28,6 +28,9 @@ import {
   detectFileType,
   iconForFile,
   sanitizeFileName,
+  inferPreviewMimeType,
+  isTextPreviewable,
+  normalizeMimeType,
 } from '../utils/file'
 import { useUserStore } from '../stores/user'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
@@ -141,7 +144,6 @@ const previewUrl = ref('')
 const previewMimeType = ref('')
 const previewTextContent = ref('')
 const publicShareLink = ref('')
-const shareError = ref<string | null>(null)
 const isCreatingShareLink = ref(false)
 const isDeletingShareLink = ref(false)
 const isDeleteConfirmModalOpen = ref(false)
@@ -403,73 +405,15 @@ const ownerInitials = (name: string) => {
   return trimmed.slice(0, 2).toUpperCase()
 }
 
-const getFileExt = (name: string) => {
-  const idx = name.lastIndexOf('.')
-  if (idx < 0 || idx === name.length - 1) return ''
-  return name.slice(idx + 1).toLowerCase()
-}
-
-const normalizeMimeType = (mimeType: string) => {
-  return (mimeType || '').split(';')[0].trim().toLowerCase()
-}
-
-const inferMimeType = (name: string, mimeType: string) => {
-  const normalized = normalizeMimeType(mimeType)
-  if (normalized && normalized !== 'application/octet-stream') return normalized
-  const ext = getFileExt(name)
-  if (
-    [
-      'txt',
-      'md',
-      'json',
-      'csv',
-      'log',
-      'xml',
-      'yaml',
-      'yml',
-      'html',
-      'css',
-      'js',
-      'ts',
-      'vue',
-    ].includes(ext)
-  )
-    return 'text/plain'
-  if (ext === 'pdf') return 'application/pdf'
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext))
-    return `image/${ext === 'jpg' ? 'jpeg' : ext}`
-  if (['mp4', 'webm', 'ogg', 'mov', 'm4v', 'avi', 'mkv', 'mpeg'].includes(ext))
-    return `video/${ext === 'mov' ? 'mp4' : ext}`
-  if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(ext)) return `audio/${ext}`
-  return 'application/octet-stream'
-}
-
-const isTextPreviewable = (mimeType: string, name: string) => {
-  if (mimeType.startsWith('text/')) return true
-  return [
-    'md',
-    'json',
-    'csv',
-    'log',
-    'xml',
-    'yaml',
-    'yml',
-    'js',
-    'ts',
-    'vue',
-    'html',
-    'css',
-  ].includes(getFileExt(name))
-}
-
 const previewKind = computed<PreviewKind>(() => {
   const mime = normalizeMimeType(previewMimeType.value)
+  const name = previewingFile.value?.name || ''
   if (!mime) return 'unsupported'
+  if (isTextPreviewable(mime, name)) return 'text'
   if (mime.startsWith('image/')) return 'image'
   if (mime === 'application/pdf' || mime.includes('pdf')) return 'pdf'
   if (mime.startsWith('video/')) return 'video'
   if (mime.startsWith('audio/')) return 'audio'
-  if (isTextPreviewable(mime, previewingFile.value?.name || '')) return 'text'
   return 'unsupported'
 })
 
@@ -488,7 +432,6 @@ const closePreviewModal = () => {
   previewMimeType.value = ''
   previewTextContent.value = ''
   publicShareLink.value = ''
-  shareError.value = null
   isCreatingShareLink.value = false
   isDeletingShareLink.value = false
   revokePreviewUrl()
@@ -517,7 +460,6 @@ const openPreviewModal = async (file: DisplayItem) => {
   previewMimeType.value = ''
   previewTextContent.value = ''
   publicShareLink.value = ''
-  shareError.value = null
   isCreatingShareLink.value = false
   isDeletingShareLink.value = false
   revokePreviewUrl()
@@ -525,7 +467,7 @@ const openPreviewModal = async (file: DisplayItem) => {
   try {
     const { blob, contentType, fileName } = await previewFileById(file.id)
     const finalName = fileName || file.name
-    const finalType = inferMimeType(finalName, contentType)
+    const finalType = inferPreviewMimeType(finalName, contentType)
     previewBlob.value = blob
     previewMimeType.value = finalType
     if (isTextPreviewable(finalType, finalName)) {
@@ -571,39 +513,35 @@ const handleDownloadFromMenu = async () => {
 const generatePublicShareLink = async () => {
   if (!previewingFile.value || previewingFile.value.type !== 'file') return
   isCreatingShareLink.value = true
-  shareError.value = null
   try {
-    const { token } = await createPublicShareLink(previewingFile.value.id)
-    // 始终使用前端构造的 URL，确保包含 /api 前缀以便 Vite 代理正确转发
-    publicShareLink.value = `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
-    displayToast('分享链接已生成', 'success')
-  } catch (error: unknown) {
-    shareError.value = error instanceof Error ? error.message : '生成分享链接失败'
+    const { url } = await createPublicShareLink(previewingFile.value.id)
+    publicShareLink.value = url
+    displayToast('公网链接已生成', 'success')
+  } catch {
+    publicShareLink.value = ''
   } finally {
     isCreatingShareLink.value = false
   }
 }
 
 const loadExistingPublicShareLink = async (fileId: number) => {
-  shareError.value = null
   try {
     const data = await getPublicShareLink(fileId)
     publicShareLink.value = data?.exists && data?.url ? data.url : ''
-  } catch (error: unknown) {
-    shareError.value = error instanceof Error ? error.message : '获取分享链接失败'
+  } catch {
+    publicShareLink.value = ''
   }
 }
 
 const removePublicShareLink = async () => {
   if (!previewingFile.value || previewingFile.value.type !== 'file') return
   isDeletingShareLink.value = true
-  shareError.value = null
   try {
     await deletePublicShareLink(previewingFile.value.id)
     publicShareLink.value = ''
-    displayToast('分享链接已删除', 'success')
-  } catch (error: unknown) {
-    shareError.value = error instanceof Error ? error.message : '删除分享链接失败'
+    displayToast('公网链接已删除', 'success')
+  } catch {
+    publicShareLink.value = ''
   } finally {
     isDeletingShareLink.value = false
   }
@@ -614,7 +552,7 @@ const copyPublicShareLink = async () => {
   try {
     await navigator.clipboard.writeText(publicShareLink.value)
     displayToast('链接已复制', 'success')
-  } catch (e) {
+  } catch {
     displayToast('复制失败，请手动复制', 'error')
   }
 }
@@ -960,37 +898,23 @@ const startUploadTasks = async (tasks: UploadTask[]) => {
   isUploadPanelOpen.value = true
   isUploading.value = true
 
-  // 使用队列控制并发
   const queue = [...tasks]
-  let activeCount = 0
-  const results: Promise<void>[] = []
+  const workerCount = Math.min(MAX_CONCURRENT_UPLOADS, queue.length)
 
-  const processTask = async (task: UploadTask): Promise<void> => {
-    activeCount++
-    try {
-      await processUploadTask(task)
-    } finally {
-      activeCount--
-      // 当这个任务完成时，尝试启动下一个
-      processNext()
-    }
-  }
-
-  const processNext = (): void => {
-    while (activeCount < MAX_CONCURRENT_UPLOADS && queue.length > 0) {
+  const runWorker = async () => {
+    while (queue.length > 0) {
       const task = queue.shift()
-      if (task) {
-        results.push(processTask(task))
+      if (!task) continue
+      try {
+        await processUploadTask(task)
+      } catch {
+        // 单个任务已在 processUploadTask 中标记失败，继续处理队列中的其他任务。
       }
     }
   }
 
   try {
-    // 启动初始任务
-    processNext()
-
-    // 等待所有任务完成
-    await Promise.all(results)
+    await Promise.all(Array.from({ length: workerCount }, runWorker))
 
     // 统计上传结果
     const successCount = tasks.filter(t => t.status === 'success').length
@@ -2420,56 +2344,6 @@ onBeforeUnmount(() => {
                     <Icon class="text-[20px]" icon="material-symbols:download" />
                     下载
                   </button>
-                  <button
-                    class="flex items-center gap-2 px-4 py-2 rounded-lg hover:bg-primary/10 text-primary font-semibold text-sm transition-all active:scale-95 focus:ring-2 focus:ring-primary/30 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-                    type="button"
-                    aria-label="生成分享链接"
-                    :disabled="isCreatingShareLink || !previewingFile"
-                    @click="generatePublicShareLink"
-                  >
-                    <Icon
-                      class="text-[20px]"
-                      :icon="
-                        isCreatingShareLink
-                          ? 'material-symbols:progress-activity'
-                          : 'material-symbols:share'
-                      "
-                      :class="isCreatingShareLink ? 'animate-spin' : ''"
-                    />
-                    {{ isCreatingShareLink ? '生成中' : '分享' }}
-                  </button>
-                </div>
-
-                <div
-                  v-if="publicShareLink || shareError"
-                  class="absolute bottom-24 left-1/2 -translate-x-1/2 w-[min(90%,680px)] bg-white dark:bg-slate-950 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 p-3 z-20"
-                >
-                  <p class="text-xs text-slate-500 mb-2">公网分享链接（免鉴权访问）</p>
-                  <div v-if="publicShareLink" class="flex items-center gap-2">
-                    <input
-                      :value="publicShareLink"
-                      readonly
-                      class="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"
-                    />
-                    <button
-                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 focus:ring-2 focus:ring-primary/50 focus:outline-none"
-                      type="button"
-                      aria-label="复制分享链接"
-                      @click="copyPublicShareLink"
-                    >
-                      复制
-                    </button>
-                    <button
-                      class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
-                      type="button"
-                      aria-label="删除分享链接"
-                      :disabled="isDeletingShareLink"
-                      @click="removePublicShareLink"
-                    >
-                      {{ isDeletingShareLink ? '删除中' : '删除' }}
-                    </button>
-                  </div>
-                  <p v-else-if="shareError" class="text-sm text-red-500">{{ shareError }}</p>
                 </div>
               </div>
 
@@ -2503,6 +2377,66 @@ onBeforeUnmount(() => {
                     <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {{ previewingFile?.lastModifiedText || '-' }}
                     </p>
+                  </div>
+                  <div class="pt-5 border-t border-slate-100 dark:border-slate-800">
+                    <label class="text-[11px] text-slate-400 block mb-2">
+                      公网分享链接（免鉴权访问）
+                    </label>
+                    <div v-if="publicShareLink" class="space-y-2">
+                      <input
+                        :value="publicShareLink"
+                        readonly
+                        class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"
+                      />
+                      <div class="grid grid-cols-2 gap-2">
+                        <button
+                          class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 focus:ring-2 focus:ring-primary/50 focus:outline-none"
+                          type="button"
+                          aria-label="复制分享链接"
+                          @click="copyPublicShareLink"
+                        >
+                          <Icon class="text-[18px]" icon="material-symbols:content-copy-outline" />
+                          复制
+                        </button>
+                        <button
+                          class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                          type="button"
+                          aria-label="删除分享链接"
+                          :disabled="isDeletingShareLink"
+                          @click="removePublicShareLink"
+                        >
+                          <Icon
+                            class="text-[18px]"
+                            :icon="
+                              isDeletingShareLink
+                                ? 'material-symbols:progress-activity'
+                                : 'material-symbols:delete-outline'
+                            "
+                            :class="isDeletingShareLink ? 'animate-spin' : ''"
+                          />
+                          {{ isDeletingShareLink ? '删除中' : '删除' }}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      v-else
+                      class="inline-flex w-full items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white font-semibold text-sm transition-all shadow-md shadow-primary/20 active:scale-95 focus:ring-2 focus:ring-primary/50 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                      type="button"
+                      aria-label="生成公网链接"
+                      :disabled="isCreatingShareLink || !previewingFile"
+                      @click="generatePublicShareLink"
+                    >
+                      <Icon
+                        class="text-[20px]"
+                        :icon="
+                          isCreatingShareLink
+                            ? 'material-symbols:progress-activity'
+                            : 'material-symbols:share'
+                        "
+                        :class="isCreatingShareLink ? 'animate-spin' : ''"
+                      />
+                      {{ isCreatingShareLink ? '生成中' : '生成公网链接' }}
+                    </button>
                   </div>
                 </div>
               </div>

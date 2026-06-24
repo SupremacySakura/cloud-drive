@@ -1,6 +1,59 @@
 import { FileType } from '../types/file'
 import type { FileListItem } from '../services/types/file'
 
+const textPreviewExtensions = [
+  'txt',
+  'md',
+  'json',
+  'csv',
+  'log',
+  'xml',
+  'yaml',
+  'yml',
+  'html',
+  'css',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'vue',
+]
+
+export const getFileExtension = (name: string) => {
+  const idx = name.lastIndexOf('.')
+  if (idx < 0 || idx === name.length - 1) return ''
+  return name.slice(idx + 1).toLowerCase()
+}
+
+export const normalizeMimeType = (mimeType: string) => {
+  return (mimeType || '').split(';')[0].trim().toLowerCase()
+}
+
+export const isTextPreviewFileName = (name: string) => {
+  return textPreviewExtensions.includes(getFileExtension(name))
+}
+
+export const inferPreviewMimeType = (name: string, mimeType: string) => {
+  const ext = getFileExtension(name)
+  if (isTextPreviewFileName(name)) return 'text/plain'
+
+  const normalized = normalizeMimeType(mimeType)
+  if (normalized && normalized !== 'application/octet-stream') return normalized
+
+  if (ext === 'pdf') return 'application/pdf'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext))
+    return `image/${ext === 'jpg' ? 'jpeg' : ext}`
+  if (['mp4', 'webm', 'ogg', 'mov', 'm4v', 'avi', 'mkv', 'mpeg'].includes(ext))
+    return `video/${ext === 'mov' ? 'mp4' : ext}`
+  if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(ext)) return `audio/${ext}`
+  return 'application/octet-stream'
+}
+
+export const isTextPreviewable = (mimeType: string, name: string) => {
+  if (isTextPreviewFileName(name)) return true
+  return normalizeMimeType(mimeType).startsWith('text/')
+}
+
 /**
  * 格式化字节数为人类可读的字符串
  * @param bytes 字节数
@@ -26,6 +79,7 @@ export const formatBytes = (bytes: number) => {
  */
 export const detectFileType = (file: File) => {
   const t = file.type || ''
+  if (isTextPreviewFileName(file.name)) return FileType.Document
   if (t.startsWith('image/')) return FileType.Image
   if (t.startsWith('video/')) return FileType.Video
   if (t.startsWith('audio/')) return FileType.Audio

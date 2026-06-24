@@ -180,21 +180,21 @@ watch(
       </div>
 
       <!-- Storage and Stats Grid -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <!-- Storage Card -->
         <div
-          class="lg:col-span-4 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm"
+          class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm lg:col-span-4 lg:self-start"
         >
-          <div class="flex justify-between items-start mb-6">
+          <div class="mb-5 flex items-start justify-between gap-4">
             <h3 class="font-bold">存储使用情况</h3>
             <Icon
               icon="material-symbols:info-outline-rounded"
-              class="text-2xl text-slate-400"
+              class="shrink-0 text-2xl text-slate-400"
               aria-hidden="true"
             />
           </div>
 
-          <div class="flex items-center justify-center py-6">
+          <div class="flex items-center justify-center py-3">
             <div class="relative flex items-center justify-center">
               <svg class="w-32 h-32 transform -rotate-90">
                 <circle
@@ -226,12 +226,22 @@ watch(
             </div>
           </div>
 
-          <div class="space-y-4 mt-4">
-            <div class="flex justify-between text-sm">
-              <span class="text-slate-500"
-                >已使用 {{ storageUsedStr }} / 共 {{ storageTotalStr }}</span
-              >
-              <span class="font-semibold">剩余 {{ storageLeftStr }}</span>
+          <div class="mt-5 space-y-3 border-t border-slate-100 pt-5 text-sm dark:border-slate-800">
+            <div class="flex items-center justify-between gap-4">
+              <span class="text-slate-500">已使用</span>
+              <span class="font-semibold text-slate-900 dark:text-slate-100">{{
+                storageUsedStr
+              }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <span class="text-slate-500">总容量</span>
+              <span class="font-semibold text-slate-900 dark:text-slate-100">{{
+                storageTotalStr
+              }}</span>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <span class="text-slate-500">剩余</span>
+              <span class="font-semibold text-primary">{{ storageLeftStr }}</span>
             </div>
           </div>
         </div>

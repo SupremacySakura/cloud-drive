@@ -15,6 +15,17 @@ import type {
 } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
+const assertSuccess = <T>(res: ResponseData<T>, fallbackMessage: string): T => {
+  if (res.code !== 0) {
+    throw new Error(res.msg || fallbackMessage)
+  }
+  return res.data
+}
+
+const buildPublicShareUrl = (token: string) => {
+  return `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
+}
+
 export const uploadFile = async (
   file: File,
   fileConfig: UploadFileConfig,
@@ -44,15 +55,18 @@ export const uploadFile = async (
   if (signal?.aborted) {
     throw new Error('上传已取消')
   }
-  if (initRes.data.code !== 0) {
+  let initPayload: InitUploadFileResponse
+  try {
+    initPayload = assertSuccess(initRes.data, '初始化上传失败')
+  } catch (error) {
     onProgress(0)
-    return
+    throw error
   }
-  if (initRes.data.data.status !== 'uploading') {
+  if (initPayload.status !== 'uploading') {
     onProgress(100)
     return
   }
-  const uploaded_chunks = new Set(initRes.data.data.uploaded_chunks)
+  const uploaded_chunks = new Set(initPayload.uploaded_chunks)
   for (let chunk_index = 0; chunk_index < total_chunks; chunk_index++) {
     if (signal?.aborted) {
       throw new Error('上传已取消')
@@ -63,32 +77,36 @@ export const uploadFile = async (
     }
     const chunk = file.slice(chunk_index * 1024 * 1024, (chunk_index + 1) * 1024 * 1024)
     const uploadData = new FormData()
-    uploadData.append('task_id', initRes.data.data.task_id.toString())
+    uploadData.append('task_id', initPayload.task_id.toString())
     uploadData.append('chunk_index', chunk_index.toString())
     uploadData.append('chunk_data', chunk)
     uploadData.append('chunk_hash', await calculateHash(chunk))
-    const chunkRes = await request.post<ResponseData<{}>>('/api/file/chunk', uploadData, {
+    const chunkRes = await request.post<ResponseData<null>>('/api/file/chunk', uploadData, {
       signal,
     })
     if (signal?.aborted) {
       throw new Error('上传已取消')
     }
-    if (chunkRes.data.code !== 0) {
+    try {
+      assertSuccess(chunkRes.data, '上传分片失败')
+    } catch (error) {
       onProgress(0)
-      return
+      throw error
     }
     onProgress(((chunk_index + 1) / total_chunks) * 100)
   }
-  const mergeRes = await request.post<ResponseData<{}>>(
+  const mergeRes = await request.post<ResponseData<null>>(
     '/api/file/merge',
     {
-      task_id: initRes.data.data.task_id,
+      task_id: initPayload.task_id,
     },
     { signal },
   )
-  if (mergeRes.data.code !== 0) {
+  try {
+    assertSuccess(mergeRes.data, '合并文件失败')
+  } catch (error) {
     onProgress(0)
-    return
+    throw error
   }
   onProgress(100)
 }
@@ -347,7 +365,10 @@ export const createPublicShareLink = async (fileId: number, signal?: AbortSignal
   if (res.data.code !== 0 || !res.data.data?.token) {
     throw new Error(res.data.msg || '生成分享链接失败')
   }
-  return res.data.data
+  return {
+    ...res.data.data,
+    url: buildPublicShareUrl(res.data.data.token),
+  }
 }
 
 export const getPublicShareLink = async (fileId: number, signal?: AbortSignal) => {
@@ -360,6 +381,12 @@ export const getPublicShareLink = async (fileId: number, signal?: AbortSignal) =
   )
   if (res.data.code !== 0) {
     throw new Error(res.data.msg || '获取分享链接失败')
+  }
+  if (res.data.data?.exists && res.data.data.token) {
+    return {
+      ...res.data.data,
+      url: buildPublicShareUrl(res.data.data.token),
+    }
   }
   return res.data.data
 }

@@ -141,6 +141,15 @@ func sanitizeStorageFileExt(name string) string {
 	return ext
 }
 
+func containsChunk(chunks model.IntSlice, target int) bool {
+	for _, chunk := range chunks {
+		if chunk == target {
+			return true
+		}
+	}
+	return false
+}
+
 func validateZipEntryPath(entryPath string) error {
 	if entryPath == "" {
 		return errors.New("invalid zip entry path: empty path")
@@ -227,6 +236,21 @@ func (s *fileService) ensureStorageQuota(userID uint, additionalSize uint64) err
 		return ErrStorageQuotaExceeded
 	}
 	return nil
+}
+
+func (s *fileService) buildStorageDir(fileHash string) (string, error) {
+	if len(fileHash) < 4 {
+		return "", errors.New("invalid file hash")
+	}
+	return filepath.Join(s.FileStoragePath, fileHash[0:2], fileHash[2:4]), nil
+}
+
+func (s *fileService) buildCanonicalStoragePath(fileHash string) (string, error) {
+	dir, err := s.buildStorageDir(fileHash)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, fileHash), nil
 }
 
 func NewFileService(fileRepository *repository.FileRepository, options FileServiceOptions) FileService {
@@ -374,12 +398,16 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return err
 		}
 
+		if req.ChunkIndex < 0 || req.ChunkIndex >= task.TotalChunks {
+			return ErrChunkSizeMismatch
+		}
+
 		expectedChunkSize := int64(task.ChunkSize)
 		if req.ChunkIndex == task.TotalChunks-1 {
 			expectedChunkSize = int64(task.FileSize) - int64(req.ChunkIndex)*int64(task.ChunkSize)
 		}
 
-		if chunkSize > expectedChunkSize {
+		if chunkSize != expectedChunkSize {
 			return ErrChunkSizeMismatch
 		}
 
@@ -420,8 +448,10 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return errors.New("chunk hash mismatch")
 		}
 
-		task.UploadedChunks = append(task.UploadedChunks, req.ChunkIndex)
-		sort.Ints(task.UploadedChunks)
+		if !containsChunk(task.UploadedChunks, req.ChunkIndex) {
+			task.UploadedChunks = append(task.UploadedChunks, req.ChunkIndex)
+			sort.Ints(task.UploadedChunks)
+		}
 
 		return tx.Save(&task).Error
 	})
@@ -459,11 +489,17 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
 		return err
 	}
 
-	dirPath := s.FileStoragePath + "/" + task.FileHash[0:2] + "/" + task.FileHash[2:4]
+	dirPath, err := s.buildStorageDir(task.FileHash)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return err
 	}
-	filePath := dirPath + "/" + task.FileHash + sanitizeStorageFileExt(task.FileName)
+	filePath, err := s.buildCanonicalStoragePath(task.FileHash)
+	if err != nil {
+		return err
+	}
 	file, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -1048,6 +1084,9 @@ func (s *fileService) DownloadByPickUpCode(code string, writer io.Writer, setMet
 	if err != nil {
 		return err
 	}
+	if err := s.MarkPickUpDownloadSuccess(target.CodeID); err != nil {
+		return err
+	}
 
 	contentType := "application/octet-stream"
 	switch target.Type {
@@ -1072,10 +1111,6 @@ func (s *fileService) DownloadByPickUpCode(code string, writer io.Writer, setMet
 		}
 	default:
 		return errors.New("invalid pickup target type")
-	}
-
-	if err := s.MarkPickUpDownloadSuccess(target.CodeID); err != nil {
-		return err
 	}
 	return nil
 }
@@ -1140,12 +1175,27 @@ func (s *fileService) ResolveActivePickUpCode(code string) (*PickUpDownloadTarge
 }
 
 func (s *fileService) BuildFileAbsolutePath(fileModel *model.FileModel) (string, error) {
-	if len(fileModel.FileHash) < 4 {
-		return "", errors.New("invalid file hash")
+	filePath, err := s.buildCanonicalStoragePath(fileModel.FileHash)
+	if err != nil {
+		return "", err
 	}
-	ext := sanitizeStorageFileExt(fileModel.Name)
-	filePath := s.FileStoragePath + "/" + fileModel.FileHash[0:2] + "/" + fileModel.FileHash[2:4] + "/" + fileModel.FileHash + ext
 	if _, err := os.Stat(filePath); err != nil {
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		dirPath, dirErr := s.buildStorageDir(fileModel.FileHash)
+		if dirErr != nil {
+			return "", dirErr
+		}
+		legacyMatches, globErr := filepath.Glob(filepath.Join(dirPath, fileModel.FileHash+".*"))
+		if globErr != nil {
+			return "", globErr
+		}
+		for _, match := range legacyMatches {
+			if info, statErr := os.Stat(match); statErr == nil && !info.IsDir() {
+				return match, nil
+			}
+		}
 		return "", err
 	}
 	return filePath, nil

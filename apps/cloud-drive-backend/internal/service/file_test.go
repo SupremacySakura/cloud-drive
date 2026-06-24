@@ -1,9 +1,20 @@
 package service
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+
+	"cloud-drive-backend/internal/model"
+	"cloud-drive-backend/internal/repository"
 )
 
 func TestSanitizeFileName_ValidName(t *testing.T) {
@@ -288,4 +299,104 @@ func TestSanitizeFileName_CaseSensitivity(t *testing.T) {
 	_, err = sanitizeFileName("Con")
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidFileName, err)
+}
+
+func TestBuildFileAbsolutePath_UsesCanonicalHashPath(t *testing.T) {
+	tempDir := t.TempDir()
+	fileHash := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	storageDir := filepath.Join(tempDir, fileHash[0:2], fileHash[2:4])
+	assert.NoError(t, os.MkdirAll(storageDir, 0755))
+
+	canonicalPath := filepath.Join(storageDir, fileHash)
+	assert.NoError(t, os.WriteFile(canonicalPath, []byte("content"), 0644))
+
+	svc := &fileService{FileServiceOptions: FileServiceOptions{FileStoragePath: tempDir}}
+	path, err := svc.BuildFileAbsolutePath(&model.FileModel{
+		FileHash: fileHash,
+		Name:     "renamed.pdf",
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, canonicalPath, path)
+}
+
+func TestBuildFileAbsolutePath_FallsBackToLegacyExtensionPath(t *testing.T) {
+	tempDir := t.TempDir()
+	fileHash := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	storageDir := filepath.Join(tempDir, fileHash[0:2], fileHash[2:4])
+	assert.NoError(t, os.MkdirAll(storageDir, 0755))
+
+	legacyPath := filepath.Join(storageDir, fileHash+".txt")
+	assert.NoError(t, os.WriteFile(legacyPath, []byte("content"), 0644))
+
+	svc := &fileService{FileServiceOptions: FileServiceOptions{FileStoragePath: tempDir}}
+	path, err := svc.BuildFileAbsolutePath(&model.FileModel{
+		FileHash: fileHash,
+		Name:     "renamed.pdf",
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, legacyPath, path)
+}
+
+func setupServiceMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock, func()) {
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock database: %v", err)
+	}
+
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      sqlDB,
+		DriverName:                "mysql",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm db: %v", err)
+	}
+
+	return db, mock, func() {
+		_ = sqlDB.Close()
+	}
+}
+
+func TestDownloadByPickUpCode_ReservesDownloadBeforeStreaming(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	tempDir := t.TempDir()
+	fileHash := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	storageDir := filepath.Join(tempDir, fileHash[0:2], fileHash[2:4])
+	assert.NoError(t, os.MkdirAll(storageDir, 0755))
+	assert.NoError(t, os.WriteFile(filepath.Join(storageDir, fileHash), []byte("secret"), 0644))
+
+	expireTime := time.Now().Add(time.Hour)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models`")).
+		WithArgs("ABC123", 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "file_id", "folder_id", "download", "max_download", "expire_time", "code", "status", "user_id"}).
+			AddRow(9, model.PickUpTargetTypeFile, uint(7), nil, 0, 1, expireTime, "ABC123", model.PickUpCodeStatusActive, 42))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(uint(7), uint(42), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "file_hash", "type", "size", "folder_id", "user_id"}).
+			AddRow(7, "secret.txt", fileHash, "document", 6, 0, 42))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models`")).
+		WithArgs(uint(9), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "file_id", "folder_id", "download", "max_download", "expire_time", "code", "status", "user_id"}).
+			AddRow(9, model.PickUpTargetTypeFile, uint(7), nil, 1, 1, expireTime, "ABC123", model.PickUpCodeStatusActive, 42))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `pick_up_code_models`")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			FileStoragePath: tempDir,
+		},
+	}
+	var writer bytes.Buffer
+	err := svc.DownloadByPickUpCode("ABC123", &writer, nil)
+
+	assert.ErrorIs(t, err, ErrPickupCodeExpired)
+	assert.Empty(t, writer.String())
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

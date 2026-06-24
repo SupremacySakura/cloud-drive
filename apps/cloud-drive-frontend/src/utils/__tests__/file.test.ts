@@ -6,6 +6,8 @@ import {
   typeLabelForListItem,
   formatTime,
   sanitizeFileName,
+  inferPreviewMimeType,
+  isTextPreviewable,
 } from '../file'
 import { FileType } from '../../types/file'
 
@@ -40,6 +42,11 @@ describe('detectFileType', () => {
   it('should detect text files as documents', () => {
     const txtFile = new File([''], 'test.txt', { type: 'text/plain' })
     expect(detectFileType(txtFile)).toBe(FileType.Document)
+  })
+
+  it('should detect TypeScript declaration files as documents even with video mime type', () => {
+    const declarationFile = new File([''], 'next-env.d.ts', { type: 'video/mp2t' })
+    expect(detectFileType(declarationFile)).toBe(FileType.Document)
   })
 
   it('should detect unknown files as other', () => {
@@ -218,5 +225,12 @@ describe('sanitizeFileName', () => {
   it('should handle special Unicode characters', () => {
     const name = '文件📄名称.txt'
     expect(sanitizeFileName(name)).toBe(name)
+  })
+})
+
+describe('preview file type helpers', () => {
+  it('should prefer TypeScript declaration extension over video/mp2t mime type', () => {
+    expect(inferPreviewMimeType('next-env.d.ts', 'video/mp2t')).toBe('text/plain')
+    expect(isTextPreviewable('video/mp2t', 'next-env.d.ts')).toBe(true)
   })
 })

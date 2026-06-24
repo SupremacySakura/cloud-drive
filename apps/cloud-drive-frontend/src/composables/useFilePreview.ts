@@ -6,6 +6,7 @@ import {
   deletePublicShareLink,
   createPublicShareLink,
 } from '../services/apis/file'
+import { inferPreviewMimeType, isTextPreviewable } from '../utils/file'
 
 type DisplayItem = FileListItem & {
   icon: string
@@ -45,26 +46,10 @@ export function useFilePreview() {
     try {
       const { blob, contentType, fileName } = await previewFileById(file.id)
       const finalName = fileName || file.name
-      const finalType = (contentType || '').split(';')[0].toLowerCase() || ''
+      const finalType = inferPreviewMimeType(finalName, contentType)
       previewBlob.value = blob
       previewMimeType.value = finalType
-      if (
-        finalType.startsWith('text/') ||
-        [
-          'md',
-          'json',
-          'csv',
-          'log',
-          'xml',
-          'yaml',
-          'yml',
-          'js',
-          'ts',
-          'vue',
-          'html',
-          'css',
-        ].includes(finalName.split('.').pop() ?? '')
-      ) {
+      if (isTextPreviewable(finalType, finalName)) {
         if (blob.size <= 1024 * 1024) previewTextContent.value = await blob.text()
         else previewTextContent.value = '文本文件较大，已为你展示下载入口，请下载后查看完整内容。'
       }
@@ -99,8 +84,8 @@ export function useFilePreview() {
     isCreatingShareLink.value = true
     shareError.value = null
     try {
-      const { token } = await createPublicShareLink(previewingFile.value.id)
-      publicShareLink.value = `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
+      const { url } = await createPublicShareLink(previewingFile.value.id)
+      publicShareLink.value = url
     } catch (e: any) {
       shareError.value = e?.message || '生成分享链接失败'
     } finally {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -289,6 +290,43 @@ func TestInitUploadFile_FileTooLarge(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "文件大小超过限制")
+}
+
+func TestUploadFileChunk_AllowsOpaqueMiddleChunk(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	router.POST("/chunk", setUserIDMiddleware(1), handler.UploadFileChunk)
+
+	opaqueChunk := bytes.Repeat([]byte{0x00}, 1024)
+	var receivedChunk []byte
+	mockFileSvc.uploadFileChunkStreamFunc = func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
+		receivedChunk, _ = io.ReadAll(reader)
+		assert.Equal(t, uint(1), userID)
+		assert.Equal(t, uint(3), chunk.TaskID)
+		assert.Equal(t, 1, chunk.ChunkIndex)
+		assert.Equal(t, int64(len(opaqueChunk)), chunkSize)
+		return nil
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	assert.NoError(t, writer.WriteField("task_id", "3"))
+	assert.NoError(t, writer.WriteField("chunk_index", "1"))
+	assert.NoError(t, writer.WriteField("chunk_hash", "hash"))
+	part, err := writer.CreateFormFile("chunk_data", "chunk.bin")
+	assert.NoError(t, err)
+	_, err = part.Write(opaqueChunk)
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/chunk", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":0`)
+	assert.Equal(t, opaqueChunk, receivedChunk)
 }
 
 // Test GetListByFolderIDAndUserID Handler - Query参数绑定

@@ -183,31 +183,17 @@ func (h *FileHandler) UploadFileChunk(c *gin.Context) {
 	defer src.Close()
 
 	limitedReader := io.LimitReader(src, maxChunkSize+1)
-	buf := make([]byte, 512)
-	n, err := limitedReader.Read(buf)
-	if err != nil && err != io.EOF {
-		response.Fail(c, response.CodeServerError)
-		return
-	}
-
-	detectedMIME := http.DetectContentType(buf[:n])
-	if !h.FileService.IsAllowedMIMEType(detectedMIME) {
-		response.FailWithMsg(c, response.CodeInvalidParam, "不支持的文件类型")
-		return
-	}
-
-	remainingData, err := io.ReadAll(limitedReader)
+	fullData, err := io.ReadAll(limitedReader)
 	if err != nil {
 		response.Fail(c, response.CodeServerError)
 		return
 	}
 
-	if int64(len(remainingData)) > maxChunkSize-int64(n) {
+	if int64(len(fullData)) > maxChunkSize {
 		response.FailWithMsg(c, response.CodeInvalidParam, "分片大小超过限制")
 		return
 	}
 
-	fullData := append(buf[:n], remainingData...)
 	reader := bytes.NewReader(fullData)
 
 	if err := h.FileService.UploadFileChunkStream(userID, &req, reader, int64(len(fullData))); err != nil {
