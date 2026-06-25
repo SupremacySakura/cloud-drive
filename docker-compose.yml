@@ -23,6 +23,7 @@ services:
       start_period: 30s
 
   backend:
+    image: ${BACKEND_IMAGE:-cloud-drive-backend}:${IMAGE_TAG:-latest}
     build:
       context: ./apps/cloud-drive-backend
       dockerfile: Dockerfile
@@ -56,6 +57,7 @@ services:
     mem_limit: 512m
 
   frontend:
+    image: ${FRONTEND_IMAGE:-cloud-drive-frontend}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/cloud-drive-frontend/Dockerfile
