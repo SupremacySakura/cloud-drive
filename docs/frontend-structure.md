@@ -19,6 +19,8 @@
 - `src/main.ts`：应用启动入口，注册 Pinia、路由及持久化插件。
 - `src/router/`：路由定义与导航守卫。
 - `src/pages/`：页面级组件（登录、首页、文件管理、上传、分享等）。
+- `src/components/file-management/`：文件管理页的展示组件，包括双视图、工具栏、分页、操作菜单、弹窗与上传面板；通过 typed props/emits 与页面编排层通信。
+- `src/composables/`：页面级业务状态与副作用生命周期。文件管理域分别维护列表、文件操作、预览分享、上传队列和通知，避免页面与多个 Store 重复持有同一状态。
 - `src/stores/`：Pinia 状态管理，当前以用户登录态为核心。
 - `src/services/apis/`：按业务域拆分 API 封装。
 - `src/services/request.ts`：Axios 实例与请求/响应拦截器。
@@ -41,3 +43,4 @@
 - 样式体系基于 Tailwind，主色值为 `#10b674`。
 - 暗色模式采用 class 方案（根节点 `dark` 类控制）。
 - 页面优先使用组合式 API 与 TypeScript 严格模式，减少隐式类型风险。
+- 复杂页面应保留为编排器：API 请求、取消与资源释放放入 composable，重复视图和弹窗放入对应业务组件；模板事件优先使用具名处理函数和 typed emits。
