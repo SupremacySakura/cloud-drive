@@ -191,10 +191,12 @@ definitions:
   model.UploadStatus:
     enum:
     - uploading
+    - merging
     - completed
     type: string
     x-enum-varnames:
     - UploadStatusUploading
+    - UploadStatusMerging
     - UploadStatusCompleted
   response.Response:
     properties:
@@ -211,6 +213,7 @@ definitions:
     - 1002
     - 1003
     - 1004
+    - 1005
     type: integer
     x-enum-varnames:
     - CodeSuccess
@@ -218,8 +221,11 @@ definitions:
     - CodeUnauthorized
     - CodeNotFound
     - CodeServerError
+    - CodeConflict
   vo.InitUploadFileResp:
     properties:
+      file_id:
+        type: integer
       status:
         $ref: '#/definitions/model.UploadStatus'
       task_id:
@@ -233,6 +239,13 @@ definitions:
     properties:
       token:
         type: string
+    type: object
+  vo.MergeUploadedChunksResp:
+    properties:
+      file_id:
+        type: integer
+      status:
+        $ref: '#/definitions/model.UploadStatus'
     type: object
   vo.PickUpCodeListItem:
     properties:
@@ -345,13 +358,37 @@ paths:
   /file/chunk:
     post:
       consumes:
-      - application/json
+      - multipart/form-data
       description: 上传文件分片
+      parameters:
+      - description: 上传任务ID
+        in: formData
+        name: task_id
+        required: true
+        type: integer
+      - description: 分片序号
+        in: formData
+        name: chunk_index
+        required: true
+        type: integer
+      - description: 分片SHA-256（省略时由服务端计算）
+        in: formData
+        name: chunk_hash
+        type: string
+      - description: 分片内容
+        in: formData
+        name: chunk_data
+        required: true
+        type: file
       produces:
       - application/json
       responses:
         "200":
           description: 成功返回（code=0）
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 分片大小或哈希校验失败
           schema:
             $ref: '#/definitions/response.Response'
         "401":
@@ -360,6 +397,10 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "409":
+          description: 重复分片内容冲突或任务状态冲突
+          schema:
+            $ref: '#/definitions/response.Response'
       security:
       - ApiKeyAuth: []
       summary: 上传文件分片
@@ -622,12 +663,20 @@ paths:
                 data:
                   $ref: '#/definitions/vo.InitUploadFileResp'
               type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
         "401":
           description: 未授权（缺少/无效 Authorization）
           schema:
             additionalProperties:
               type: string
             type: object
+        "409":
+          description: 幂等键对应的上传参数冲突
+          schema:
+            $ref: '#/definitions/response.Response'
       security:
       - ApiKeyAuth: []
       summary: 初始化文件分片上传
@@ -730,15 +779,33 @@ paths:
       - application/json
       responses:
         "200":
-          description: 成功返回（code=0）
+          description: 合并完成或重复请求返回原文件
           schema:
-            $ref: '#/definitions/response.Response'
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/vo.MergeUploadedChunksResp'
+              type: object
+        "202":
+          description: 其他请求正在合并
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/vo.MergeUploadedChunksResp'
+              type: object
         "401":
           description: 未授权（缺少/无效 Authorization）
           schema:
             additionalProperties:
               type: string
             type: object
+        "409":
+          description: 任务状态冲突或分片尚未上传完成
+          schema:
+            $ref: '#/definitions/response.Response'
       security:
       - ApiKeyAuth: []
       summary: 合并上传的文件分片

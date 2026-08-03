@@ -48,18 +48,9 @@ func (r *FileRepository) GetUploadTaskByHash(fileHash string) (*model.UploadTask
 	return &task, nil
 }
 
-func (r *FileRepository) GetUploadTaskByHashAndUserID(fileHash string, userID uint) (*model.UploadTask, error) {
+func (r *FileRepository) GetUploadTaskByIdempotencyKey(idempotencyKey string) (*model.UploadTask, error) {
 	var task model.UploadTask
-	err := r.DB.Where("file_hash = ? AND user_id = ?", fileHash, userID).First(&task).Error
-	if err != nil {
-		return nil, err
-	}
-	return &task, nil
-}
-
-func (r *FileRepository) GetUploadTaskByHashAndUserIDAndFolderID(fileHash string, userID uint, folderID uint) (*model.UploadTask, error) {
-	var task model.UploadTask
-	err := r.DB.Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).First(&task).Error
+	err := r.DB.Where("idempotency_key = ?", idempotencyKey).First(&task).Error
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +66,15 @@ func (r *FileRepository) GetFileByHashAndUserID(fileHash string, userID uint) (*
 	return &file, nil
 }
 
+func (r *FileRepository) GetFileByHashAndUserIDAndFolderID(fileHash string, userID uint, folderID uint) (*model.FileModel, error) {
+	var file model.FileModel
+	err := r.DB.Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).First(&file).Error
+	if err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
 func (r *FileRepository) GetFileByFileIDAndUserID(fileID uint, userID uint) (*model.FileModel, error) {
 	var file model.FileModel
 	err := r.DB.Where("id = ? AND user_id = ?", fileID, userID).First(&file).Error
@@ -82,15 +82,6 @@ func (r *FileRepository) GetFileByFileIDAndUserID(fileID uint, userID uint) (*mo
 		return nil, err
 	}
 	return &file, nil
-}
-
-func (r *FileRepository) CheckFileExistsInFolder(fileHash string, userID uint, folderID uint) (bool, error) {
-	var count int64
-	err := r.DB.Model(&model.FileModel{}).Where("file_hash = ? AND user_id = ? AND folder_id = ?", fileHash, userID, folderID).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
 }
 
 func (r *FileRepository) GetUploadTaskByID(id uint) (*model.UploadTask, error) {
@@ -520,10 +511,12 @@ func (r *FileRepository) DeleteExpiredChunks(expiration time.Duration, chunkRoot
 	}
 
 	if len(toDeleteIDs) > 0 {
-		// 删除数据库中的对应记录
-		if err := r.DB.Where("id IN ?", toDeleteIDs).Delete(&model.UploadTask{}).Error; err != nil {
-			return err
-		}
+		return r.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("task_id IN ?", toDeleteIDs).Delete(&model.UploadChunk{}).Error; err != nil {
+				return err
+			}
+			return tx.Where("id IN ?", toDeleteIDs).Delete(&model.UploadTask{}).Error
+		})
 	}
 	return nil
 }

@@ -36,6 +36,7 @@ const (
 	CodeUnauthorized ResponseCode = 1002
 	CodeNotFound     ResponseCode = 1003
 	CodeServerError  ResponseCode = 1004
+	CodeConflict     ResponseCode = 1005
 )
 
 // ===== code -> msg 映射（简单版）=====
@@ -51,6 +52,8 @@ func (c ResponseCode) Msg() string {
 		return "资源不存在"
 	case CodeServerError:
 		return "服务器错误"
+	case CodeConflict:
+		return "请求冲突"
 	default:
 		return "未知错误"
 	}
@@ -65,7 +68,11 @@ type Response struct {
 
 // ===== 成功 =====
 func Success(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusOK, Response{
+	SuccessWithStatus(c, http.StatusOK, data)
+}
+
+func SuccessWithStatus(c *gin.Context, httpStatus int, data interface{}) {
+	c.JSON(httpStatus, Response{
 		Code: CodeSuccess,
 		Msg:  CodeSuccess.Msg(),
 		Data: data,

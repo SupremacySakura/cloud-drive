@@ -162,7 +162,7 @@ const docTemplate = `{
                 ],
                 "description": "上传文件分片",
                 "consumes": [
-                    "application/json"
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -171,9 +171,44 @@ const docTemplate = `{
                     "file"
                 ],
                 "summary": "上传文件分片",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "上传任务ID",
+                        "name": "task_id",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "分片序号",
+                        "name": "chunk_index",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "分片SHA-256（省略时由服务端计算）",
+                        "name": "chunk_hash",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "分片内容",
+                        "name": "chunk_data",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "成功返回（code=0）",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "分片大小或哈希校验失败",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -185,6 +220,12 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "409": {
+                        "description": "重复分片内容冲突或任务状态冲突",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -622,6 +663,12 @@ const docTemplate = `{
                             ]
                         }
                     },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
                     "401": {
                         "description": "未授权（缺少/无效 Authorization）",
                         "schema": {
@@ -629,6 +676,12 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "409": {
+                        "description": "幂等键对应的上传参数冲突",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -799,9 +852,39 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "成功返回（code=0）",
+                        "description": "合并完成或重复请求返回原文件",
                         "schema": {
-                            "$ref": "#/definitions/response.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/vo.MergeUploadedChunksResp"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "其他请求正在合并",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/vo.MergeUploadedChunksResp"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "401": {
@@ -811,6 +894,12 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "409": {
+                        "description": "任务状态冲突或分片尚未上传完成",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -1631,10 +1720,12 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "uploading",
+                "merging",
                 "completed"
             ],
             "x-enum-varnames": [
                 "UploadStatusUploading",
+                "UploadStatusMerging",
                 "UploadStatusCompleted"
             ]
         },
@@ -1657,19 +1748,24 @@ const docTemplate = `{
                 1001,
                 1002,
                 1003,
-                1004
+                1004,
+                1005
             ],
             "x-enum-varnames": [
                 "CodeSuccess",
                 "CodeInvalidParam",
                 "CodeUnauthorized",
                 "CodeNotFound",
-                "CodeServerError"
+                "CodeServerError",
+                "CodeConflict"
             ]
         },
         "vo.InitUploadFileResp": {
             "type": "object",
             "properties": {
+                "file_id": {
+                    "type": "integer"
+                },
                 "status": {
                     "$ref": "#/definitions/model.UploadStatus"
                 },
@@ -1689,6 +1785,17 @@ const docTemplate = `{
             "properties": {
                 "token": {
                     "type": "string"
+                }
+            }
+        },
+        "vo.MergeUploadedChunksResp": {
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "integer"
+                },
+                "status": {
+                    "$ref": "#/definitions/model.UploadStatus"
                 }
             }
         },

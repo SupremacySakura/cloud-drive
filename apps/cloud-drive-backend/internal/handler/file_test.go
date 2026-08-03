@@ -13,6 +13,7 @@ import (
 
 	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/model"
+	"cloud-drive-backend/internal/service"
 	"cloud-drive-backend/internal/vo"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +25,7 @@ type mockFileService struct {
 	initUploadFileFunc         func(req *model.UploadTask) (*model.UploadTask, error)
 	uploadFileChunkStreamFunc  func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
 	isAllowedMIMETypeFunc      func(mimeType string) bool
-	mergeUploadedChunksFunc    func(userID uint, taskID uint) error
+	mergeUploadedChunksFunc    func(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error)
 	getDashboardOverviewFunc   func(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
 	getListByFolderIDFunc      func(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	getListCountByFolderIDFunc func(folderID uint, userID uint) (int64, error)
@@ -66,11 +67,11 @@ func (m *mockFileService) IsAllowedMIMEType(mimeType string) bool {
 	return true
 }
 
-func (m *mockFileService) MergeUploadedChunks(userID uint, taskID uint) error {
+func (m *mockFileService) MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error) {
 	if m.mergeUploadedChunksFunc != nil {
 		return m.mergeUploadedChunksFunc(userID, taskID)
 	}
-	return nil
+	return &vo.MergeUploadedChunksResp{Status: model.UploadStatusCompleted}, nil
 }
 
 func (m *mockFileService) GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error) {
@@ -292,6 +293,27 @@ func TestInitUploadFile_FileTooLarge(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "文件大小超过限制")
 }
 
+func TestInitUploadFile_IdempotencyConflictReturnsHTTP409(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	mockFileSvc.initUploadFileFunc = func(req *model.UploadTask) (*model.UploadTask, error) {
+		return nil, service.ErrUploadRequestConflict
+	}
+	router.POST("/init", setUserIDMiddleware(1), handler.InitUploadFile)
+
+	reqBody, _ := json.Marshal(dto.InitUploadFileReq{
+		FileName: "test.txt", FileSize: 5, FileHash: "abcdef",
+		ChunkSize: 5, TotalChunks: 1, FileType: "text/plain",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/init", bytes.NewBuffer(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "upload request conflicts")
+}
+
 func TestUploadFileChunk_AllowsOpaqueMiddleChunk(t *testing.T) {
 	router, mockFileSvc, _, handler := setupFileHandlerTest()
 	router.POST("/chunk", setUserIDMiddleware(1), handler.UploadFileChunk)
@@ -327,6 +349,66 @@ func TestUploadFileChunk_AllowsOpaqueMiddleChunk(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), `"code":0`)
 	assert.Equal(t, opaqueChunk, receivedChunk)
+}
+
+func TestUploadFileChunk_ComputesHashForLegacyClient(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	router.POST("/chunk", setUserIDMiddleware(1), handler.UploadFileChunk)
+
+	serviceCalled := false
+	mockFileSvc.uploadFileChunkStreamFunc = func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
+		serviceCalled = true
+		assert.Equal(t, uint(1), userID)
+		assert.Equal(t, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", chunk.ChunkHash)
+		assert.Equal(t, int64(5), chunkSize)
+		return nil
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	assert.NoError(t, writer.WriteField("task_id", "3"))
+	assert.NoError(t, writer.WriteField("chunk_index", "0"))
+	part, err := writer.CreateFormFile("chunk_data", "chunk.bin")
+	assert.NoError(t, err)
+	_, err = part.Write([]byte("hello"))
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/chunk", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.True(t, serviceCalled)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"code":0`)
+}
+
+func TestUploadFileChunk_ConflictingDuplicateReturnsHTTP409(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	router.POST("/chunk", setUserIDMiddleware(1), handler.UploadFileChunk)
+	mockFileSvc.uploadFileChunkStreamFunc = func(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
+		return service.ErrChunkConflict
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	assert.NoError(t, writer.WriteField("task_id", "3"))
+	assert.NoError(t, writer.WriteField("chunk_index", "0"))
+	assert.NoError(t, writer.WriteField("chunk_hash", "abcdef"))
+	part, err := writer.CreateFormFile("chunk_data", "chunk.bin")
+	assert.NoError(t, err)
+	_, err = part.Write([]byte("hello"))
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/chunk", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "chunk content conflicts")
 }
 
 // Test GetListByFolderIDAndUserID Handler - Query参数绑定
@@ -739,8 +821,8 @@ func TestMergeUploadedChunks_InvalidJSON(t *testing.T) {
 
 func TestMergeUploadedChunks_ValidRequest(t *testing.T) {
 	router, mockFileSvc, _, handler := setupFileHandlerTest()
-	mockFileSvc.mergeUploadedChunksFunc = func(userID uint, taskID uint) error {
-		return nil
+	mockFileSvc.mergeUploadedChunksFunc = func(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error) {
+		return &vo.MergeUploadedChunksResp{Status: model.UploadStatusCompleted}, nil
 	}
 	router.POST("/merge", setUserIDMiddleware(1), handler.MergeUploadedChunks)
 
@@ -755,6 +837,23 @@ func TestMergeUploadedChunks_ValidRequest(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "0") // CodeSuccess
+}
+
+func TestMergeUploadedChunks_ConcurrentRequestReturnsHTTP202(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	mockFileSvc.mergeUploadedChunksFunc = func(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error) {
+		return &vo.MergeUploadedChunksResp{Status: model.UploadStatusMerging}, nil
+	}
+	router.POST("/merge", setUserIDMiddleware(1), handler.MergeUploadedChunks)
+
+	reqBody, _ := json.Marshal(dto.MergeUploadedChunksReq{TaskID: 123})
+	req := httptest.NewRequest(http.MethodPost, "/merge", bytes.NewBuffer(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	assert.Contains(t, w.Body.String(), `"status":"merging"`)
 }
 
 // Test GetListCountByFolderIDAndUserID Handler

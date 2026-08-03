@@ -12,6 +12,7 @@ import type {
   CreatePickupCodeRequest,
   PickupCodeItem,
   DashboardOverviewResponse,
+  MergeUploadedChunksResponse,
 } from '../types/file'
 import type { UploadFileConfig } from '../../types/file'
 
@@ -24,6 +25,71 @@ const assertSuccess = <T>(res: ResponseData<T>, fallbackMessage: string): T => {
 
 const buildPublicShareUrl = (token: string) => {
   return `${window.location.origin}/api/file/share/open?token=${encodeURIComponent(token)}`
+}
+
+const MERGE_MAX_WAIT_MS = 10 * 60 * 1_000
+
+const waitForMergeRetry = (delay: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    let timer: number | undefined
+    let settled = false
+    const cleanup = () => signal?.removeEventListener('abort', onAbort)
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+      cleanup()
+      reject(new Error('上传已取消'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    timer = window.setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }, delay)
+  })
+
+const mergeUploadedFile = async (taskID: number, signal?: AbortSignal) => {
+  if (signal?.aborted) throw new Error('上传已取消')
+
+  const mergeController = new AbortController()
+  let timedOut = false
+  const onAbort = () => mergeController.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) onAbort()
+  const timeout = window.setTimeout(() => {
+    timedOut = true
+    mergeController.abort()
+  }, MERGE_MAX_WAIT_MS)
+
+  try {
+    let retryDelay = 250
+    while (true) {
+      const mergeRes = await request.post<ResponseData<MergeUploadedChunksResponse>>(
+        '/api/file/merge',
+        { task_id: taskID },
+        { signal: mergeController.signal, timeout: 0 },
+      )
+      const mergePayload = assertSuccess(mergeRes.data, '合并文件失败')
+      if (mergePayload.status === 'completed') {
+        return mergePayload.file_id
+      }
+      await waitForMergeRetry(retryDelay, mergeController.signal)
+      retryDelay = Math.min(retryDelay * 2, 2_000)
+    }
+  } catch (error) {
+    if (timedOut) throw new Error('文件合并超时，请稍后重试')
+    if (signal?.aborted) throw new Error('上传已取消')
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+    signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 export const uploadFile = async (
@@ -62,7 +128,17 @@ export const uploadFile = async (
     onProgress(0)
     throw error
   }
-  if (initPayload.status !== 'uploading') {
+  if (initPayload.status === 'completed') {
+    onProgress(100)
+    return
+  }
+  if (initPayload.status === 'merging') {
+    try {
+      await mergeUploadedFile(initPayload.task_id, signal)
+    } catch (error) {
+      onProgress(0)
+      throw error
+    }
     onProgress(100)
     return
   }
@@ -95,15 +171,8 @@ export const uploadFile = async (
     }
     onProgress(((chunk_index + 1) / total_chunks) * 100)
   }
-  const mergeRes = await request.post<ResponseData<null>>(
-    '/api/file/merge',
-    {
-      task_id: initPayload.task_id,
-    },
-    { signal },
-  )
   try {
-    assertSuccess(mergeRes.data, '合并文件失败')
+    await mergeUploadedFile(initPayload.task_id, signal)
   } catch (error) {
     onProgress(0)
     throw error

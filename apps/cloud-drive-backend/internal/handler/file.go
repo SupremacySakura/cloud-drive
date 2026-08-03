@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"math/big"
 	"net/http"
@@ -87,7 +89,9 @@ func getCurrentUserID(c *gin.Context) (uint, bool) {
 // @Produce json
 // @Param data body dto.InitUploadFileReq true "初始化上传参数"
 // @Success 200 {object} response.Response{data=vo.InitUploadFileResp} "成功返回（code=0,data=vo.InitUploadFileResp）"
+// @Failure 400 {object} response.Response "参数错误"
 // @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Failure 409 {object} response.Response "幂等键对应的上传参数冲突"
 // @Security ApiKeyAuth
 // @Router /file/init [post]
 func (h *FileHandler) InitUploadFile(c *gin.Context) {
@@ -130,6 +134,14 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 	}
 	task, err = h.FileService.InitUploadFile(task)
 	if err != nil {
+		if errors.Is(err, service.ErrUploadRequestConflict) {
+			response.FailWithStatus(c, http.StatusConflict, response.CodeConflict, err.Error())
+			return
+		}
+		if errors.Is(err, service.ErrInvalidFileName) {
+			response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, err.Error())
+			return
+		}
 		response.Fail(c, response.CodeServerError)
 		return
 	}
@@ -137,6 +149,7 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 		TaskID:         task.ID,
 		UploadedChunks: []int(task.UploadedChunks),
 		Status:         task.Status,
+		FileID:         task.FileID,
 	})
 }
 
@@ -144,10 +157,16 @@ func (h *FileHandler) InitUploadFile(c *gin.Context) {
 // @Summary 上传文件分片
 // @Description 上传文件分片
 // @Tags file
-// @Accept json
+// @Accept multipart/form-data
 // @Produce json
+// @Param task_id formData int true "上传任务ID"
+// @Param chunk_index formData int true "分片序号"
+// @Param chunk_hash formData string false "分片SHA-256（省略时由服务端计算）"
+// @Param chunk_data formData file true "分片内容"
 // @Success 200 {object} response.Response "成功返回（code=0）"
+// @Failure 400 {object} response.Response "分片大小或哈希校验失败"
 // @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Failure 409 {object} response.Response "重复分片内容冲突或任务状态冲突"
 // @Security ApiKeyAuth
 // @Router /file/chunk [post]
 func (h *FileHandler) UploadFileChunk(c *gin.Context) {
@@ -193,10 +212,22 @@ func (h *FileHandler) UploadFileChunk(c *gin.Context) {
 		response.FailWithMsg(c, response.CodeInvalidParam, "分片大小超过限制")
 		return
 	}
+	if strings.TrimSpace(req.ChunkHash) == "" {
+		sum := sha256.Sum256(fullData)
+		req.ChunkHash = hex.EncodeToString(sum[:])
+	}
 
 	reader := bytes.NewReader(fullData)
 
 	if err := h.FileService.UploadFileChunkStream(userID, &req, reader, int64(len(fullData))); err != nil {
+		if errors.Is(err, service.ErrChunkConflict) || errors.Is(err, service.ErrUploadStateConflict) {
+			response.FailWithStatus(c, http.StatusConflict, response.CodeConflict, err.Error())
+			return
+		}
+		if errors.Is(err, service.ErrChunkSizeMismatch) || errors.Is(err, service.ErrChunkHashMismatch) {
+			response.FailWithStatus(c, http.StatusBadRequest, response.CodeInvalidParam, err.Error())
+			return
+		}
 		response.Fail(c, response.CodeServerError)
 		return
 	}
@@ -211,8 +242,10 @@ func (h *FileHandler) UploadFileChunk(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param data body dto.MergeUploadedChunksReq true "合并上传参数"
-// @Success 200 {object} response.Response "成功返回（code=0）"
+// @Success 200 {object} response.Response{data=vo.MergeUploadedChunksResp} "合并完成或重复请求返回原文件"
+// @Success 202 {object} response.Response{data=vo.MergeUploadedChunksResp} "其他请求正在合并"
 // @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Failure 409 {object} response.Response "任务状态冲突或分片尚未上传完成"
 // @Security ApiKeyAuth
 // @Router /file/merge [post]
 func (h *FileHandler) MergeUploadedChunks(c *gin.Context) {
@@ -226,11 +259,20 @@ func (h *FileHandler) MergeUploadedChunks(c *gin.Context) {
 		response.Fail(c, response.CodeUnauthorized)
 		return
 	}
-	if err := h.FileService.MergeUploadedChunks(userID, req.TaskID); err != nil {
+	result, err := h.FileService.MergeUploadedChunks(userID, req.TaskID)
+	if err != nil {
+		if errors.Is(err, service.ErrUploadStateConflict) || errors.Is(err, service.ErrUploadIncomplete) {
+			response.FailWithStatus(c, http.StatusConflict, response.CodeConflict, err.Error())
+			return
+		}
 		response.Fail(c, response.CodeServerError)
 		return
 	}
-	response.Success(c, nil)
+	if result.Status == model.UploadStatusMerging {
+		response.SuccessWithStatus(c, http.StatusAccepted, result)
+		return
+	}
+	response.Success(c, result)
 }
 
 // GetDashboardOverview godoc

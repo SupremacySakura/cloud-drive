@@ -85,23 +85,39 @@ type UploadStatus string
 
 const (
 	UploadStatusUploading UploadStatus = "uploading"
+	UploadStatusMerging   UploadStatus = "merging"
 	UploadStatusCompleted UploadStatus = "completed"
 )
 
 type UploadTask struct {
-	ID             uint         `gorm:"primaryKey" json:"id"`                      // uploadId
-	FileHash       string       `gorm:"not null" json:"file_hash"`                 // 文件hash（秒传关键）
-	FileName       string       `gorm:"not null" json:"file_name"`                 // 文件名
-	FileSize       uint64       `gorm:"not null" json:"file_size"`                 // 文件大小（字节）
-	ChunkSize      int          `gorm:"not null" json:"chunk_size"`                // 分片大小（字节）
-	TotalChunks    int          `gorm:"not null" json:"total_chunks"`              // 总分片数
-	UploadedChunks IntSlice     `gorm:"type:json;not null" json:"uploaded_chunks"` // 已上传分片（已上传分片索引数组）
-	FileType       string       `gorm:"not null" json:"file_type"`                 // 文件类型
-	FolderID       uint         `json:"folder_id"`                                 // 所属文件夹ID
-	UserID         uint         `gorm:"not null" json:"user_id"`                   // 所属用户ID
-	Status         UploadStatus `gorm:"not null" json:"status"`                    // uploading / completed
-	CreatedAt      time.Time    `gorm:"not null" json:"created_at"`                // 创建时间
-	UpdatedAt      time.Time    `gorm:"not null" json:"updated_at"`                // 更新时间
+	ID                  uint         `gorm:"primaryKey" json:"id"`                                  // uploadId
+	IdempotencyKey      string       `gorm:"type:char(64)" json:"idempotency_key"`                  // 用户、目录、文件名和文件哈希生成的幂等键
+	RequestHash         string       `gorm:"type:char(64);not null;default:''" json:"request_hash"` // 上传参数指纹，用于识别幂等键冲突
+	FileHash            string       `gorm:"not null" json:"file_hash"`                             // 文件hash（秒传关键）
+	FileName            string       `gorm:"not null" json:"file_name"`                             // 文件名
+	FileSize            uint64       `gorm:"not null" json:"file_size"`                             // 文件大小（字节）
+	ChunkSize           int          `gorm:"not null" json:"chunk_size"`                            // 分片大小（字节）
+	TotalChunks         int          `gorm:"not null" json:"total_chunks"`                          // 总分片数
+	UploadedChunks      IntSlice     `gorm:"type:json;not null" json:"uploaded_chunks"`             // 已上传分片（兼容旧任务的索引数组）
+	FileType            string       `gorm:"not null" json:"file_type"`                             // 文件类型
+	FolderID            uint         `json:"folder_id"`                                             // 所属文件夹ID
+	UserID              uint         `gorm:"not null" json:"user_id"`                               // 所属用户ID
+	Status              UploadStatus `gorm:"type:varchar(16);not null;index" json:"status"`         // uploading / merging / completed
+	FileID              *uint        `gorm:"index" json:"file_id,omitempty"`                        // 合并后的逻辑文件ID
+	MergeLeaseID        string       `gorm:"type:char(32);not null;default:''" json:"-"`            // 合并租约持有者
+	MergeLeaseExpiresAt *time.Time   `json:"-"`                                                     // 合并租约过期时间
+	CreatedAt           time.Time    `gorm:"not null" json:"created_at"`                            // 创建时间
+	UpdatedAt           time.Time    `gorm:"not null" json:"updated_at"`                            // 更新时间
+}
+
+type UploadChunk struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	TaskID     uint      `gorm:"not null;uniqueIndex:uniq_upload_task_chunk" json:"task_id"`
+	ChunkIndex int       `gorm:"not null;uniqueIndex:uniq_upload_task_chunk" json:"chunk_index"`
+	ChunkHash  string    `gorm:"type:char(64);not null" json:"chunk_hash"`
+	Size       int64     `gorm:"not null" json:"size"`
+	CreatedAt  time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"not null" json:"updated_at"`
 }
 
 type PickUpCodeModel struct {

@@ -8,12 +8,13 @@ export type InitUploadFileRequest = {
   folder_id: number
 }
 
-export type UploadStatus = 'uploading' | 'completed'
+export type UploadStatus = 'uploading' | 'merging' | 'completed'
 
 export type InitUploadFileResponse = {
   task_id: number
   uploaded_chunks: number[]
   status: UploadStatus
+  file_id?: number
 }
 
 export type UploadChunkRequest = {
@@ -25,6 +26,11 @@ export type UploadChunkRequest = {
 
 export type MergeUploadedChunksRequest = {
   task_id: number
+}
+
+export type MergeUploadedChunksResponse = {
+  status: Extract<UploadStatus, 'merging' | 'completed'>
+  file_id: number | null
 }
 
 export type FileListItem = {

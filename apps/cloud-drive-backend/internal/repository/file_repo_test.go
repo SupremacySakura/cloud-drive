@@ -129,26 +129,6 @@ func TestFileRepository_CreateUploadTask(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Test GetUploadTaskByHashAndUserID
-func TestFileRepository_GetUploadTaskByHashAndUserID(t *testing.T) {
-	db, mock, cleanup := setupMockDB(t)
-	defer cleanup()
-
-	repo := NewFileRepository(db)
-
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
-		WithArgs("abc123", 1, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "file_name", "file_size", "file_hash", "user_id", "status"}).
-			AddRow(1, "test.txt", 1024, "abc123", 1, model.UploadStatusUploading))
-
-	task, err := repo.GetUploadTaskByHashAndUserID("abc123", 1)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, "test.txt", task.FileName)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
 // Test GetFileByFileIDAndUserID
 func TestFileRepository_GetFileByFileIDAndUserID(t *testing.T) {
 	db, mock, cleanup := setupMockDB(t)
@@ -166,41 +146,6 @@ func TestFileRepository_GetFileByFileIDAndUserID(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, file)
 	assert.Equal(t, uint(1), file.ID)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Test CheckFileExistsInFolder
-func TestFileRepository_CheckFileExistsInFolder(t *testing.T) {
-	db, mock, cleanup := setupMockDB(t)
-	defer cleanup()
-
-	repo := NewFileRepository(db)
-
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `file_models`")).
-		WithArgs("abc123", 1, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-
-	exists, err := repo.CheckFileExistsInFolder("abc123", 1, 1)
-
-	assert.NoError(t, err)
-	assert.True(t, exists)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestFileRepository_CheckFileExistsInFolder_NotExists(t *testing.T) {
-	db, mock, cleanup := setupMockDB(t)
-	defer cleanup()
-
-	repo := NewFileRepository(db)
-
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT count(*) FROM `file_models`")).
-		WithArgs("abc123", 1, 1).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-
-	exists, err := repo.CheckFileExistsInFolder("abc123", 1, 1)
-
-	assert.NoError(t, err)
-	assert.False(t, exists)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

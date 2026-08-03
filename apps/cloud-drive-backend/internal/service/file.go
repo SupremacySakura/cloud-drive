@@ -26,18 +26,24 @@ import (
 )
 
 var (
-	ErrPickupCodeExpired    = errors.New("pickup code expired")
-	ErrPickupTargetNotFound = errors.New("pickup target not found")
-	ErrPickupEmptyFolder    = errors.New("empty folder")
-	ErrPublicShareNotFound  = errors.New("public share not found")
-	ErrInvalidFileName      = errors.New("invalid file name")
-	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
-	ErrChunkSizeMismatch    = errors.New("chunk size mismatch")
-	ErrInvalidMIMEType      = errors.New("invalid mime type")
+	ErrPickupCodeExpired     = errors.New("pickup code expired")
+	ErrPickupTargetNotFound  = errors.New("pickup target not found")
+	ErrPickupEmptyFolder     = errors.New("empty folder")
+	ErrPublicShareNotFound   = errors.New("public share not found")
+	ErrInvalidFileName       = errors.New("invalid file name")
+	ErrStorageQuotaExceeded  = errors.New("storage quota exceeded")
+	ErrChunkSizeMismatch     = errors.New("chunk size mismatch")
+	ErrChunkHashMismatch     = errors.New("chunk hash mismatch")
+	ErrChunkConflict         = errors.New("chunk content conflicts with an existing upload")
+	ErrUploadStateConflict   = errors.New("upload task is not accepting chunks")
+	ErrUploadIncomplete      = errors.New("not all chunks uploaded")
+	ErrInvalidMIMEType       = errors.New("invalid mime type")
+	ErrUploadRequestConflict = errors.New("upload request conflicts with an existing idempotency key")
 	// 新增错误类型，用于HTTP状态码映射
-	ErrFileNotFound     = errors.New("file not found")
-	ErrFolderNotFound   = errors.New("folder not found")
-	ErrPermissionDenied = errors.New("permission denied")
+	ErrFileNotFound            = errors.New("file not found")
+	ErrFolderNotFound          = errors.New("folder not found")
+	ErrPermissionDenied        = errors.New("permission denied")
+	errUploadTaskAlreadyExists = errors.New("upload task already exists")
 )
 
 var allowedMIMETypes = map[string]bool{
@@ -74,47 +80,12 @@ func (s *fileService) IsAllowedMIMEType(mimeType string) bool {
 	return false
 }
 
-var reservedNames = map[string]bool{
-	"CON": true, "PRN": true, "AUX": true, "NUL": true,
-	"COM1": true, "COM2": true, "COM3": true, "COM4": true,
-	"COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
-	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true,
-	"LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
-}
-
 func sanitizeFileName(name string) (string, error) {
-	if name == "" {
+	normalizedName, err := utils.NormalizeUploadFileName(name)
+	if err != nil {
 		return "", ErrInvalidFileName
 	}
-	name = filepath.Base(name)
-	name = strings.ReplaceAll(name, "\x00", "")
-	var cleaned strings.Builder
-	for _, r := range name {
-		if r >= 32 && r != 127 {
-			cleaned.WriteRune(r)
-		}
-	}
-	name = cleaned.String()
-	if name == "" || name == "." || name == ".." {
-		return "", ErrInvalidFileName
-	}
-	upperName := strings.ToUpper(name)
-	if reservedNames[upperName] {
-		return "", ErrInvalidFileName
-	}
-	if ext := filepath.Ext(upperName); ext != "" {
-		baseName := strings.TrimSuffix(upperName, ext)
-		if reservedNames[baseName] {
-			return "", ErrInvalidFileName
-		}
-	}
-	dangerousChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-	for _, char := range dangerousChars {
-		if strings.Contains(name, char) {
-			return "", ErrInvalidFileName
-		}
-	}
-	return name, nil
+	return normalizedName, nil
 }
 
 func sanitizeStorageFileExt(name string) string {
@@ -141,6 +112,14 @@ func sanitizeStorageFileExt(name string) string {
 	return ext
 }
 
+func buildUploadIdentity(task *model.UploadTask) (idempotencyKey, requestHash, normalizedName string, err error) {
+	idempotencyKey, requestHash, normalizedName, err = utils.BuildUploadIdentity(task)
+	if err != nil {
+		return "", "", "", ErrInvalidFileName
+	}
+	return idempotencyKey, requestHash, normalizedName, nil
+}
+
 func containsChunk(chunks model.IntSlice, target int) bool {
 	for _, chunk := range chunks {
 		if chunk == target {
@@ -148,6 +127,16 @@ func containsChunk(chunks model.IntSlice, target int) bool {
 		}
 	}
 	return false
+}
+
+func withoutChunk(chunks model.IntSlice, target int) model.IntSlice {
+	result := make(model.IntSlice, 0, len(chunks))
+	for _, chunk := range chunks {
+		if chunk != target {
+			result = append(result, chunk)
+		}
+	}
+	return result
 }
 
 func validateZipEntryPath(entryPath string) error {
@@ -187,7 +176,7 @@ type FileService interface {
 	InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error)
 	UploadFileChunkStream(userID uint, chunk *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error
 	IsAllowedMIMEType(mimeType string) bool
-	MergeUploadedChunks(userID uint, taskID uint) error
+	MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error)
 	GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
 	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
@@ -213,6 +202,8 @@ type FileService interface {
 type fileService struct {
 	FileRepository *repository.FileRepository
 	FileServiceOptions
+	newMergeLeaseID func() (string, error)
+	now             func() time.Time
 }
 
 type PickUpDownloadTarget struct {
@@ -260,7 +251,41 @@ func NewFileService(fileRepository *repository.FileRepository, options FileServi
 	}
 }
 
+func (s *fileService) nextMergeLeaseID() (string, error) {
+	if s.newMergeLeaseID != nil {
+		return s.newMergeLeaseID()
+	}
+	return generateRandomHex(16)
+}
+
+func (s *fileService) currentTime() time.Time {
+	if s.now != nil {
+		return s.now().UTC()
+	}
+	return time.Now().UTC()
+}
+
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
+	idempotencyKey, requestHash, normalizedName, err := buildUploadIdentity(req)
+	if err != nil {
+		return nil, err
+	}
+	req.IdempotencyKey = idempotencyKey
+	req.RequestHash = requestHash
+	req.FileName = normalizedName
+	req.FileHash = strings.ToLower(req.FileHash)
+
+	existingTask, err := s.FileRepository.GetUploadTaskByIdempotencyKey(idempotencyKey)
+	if err == nil {
+		if existingTask.RequestHash != requestHash {
+			return nil, ErrUploadRequestConflict
+		}
+		return existingTask, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
 	if req.FolderID > 0 {
 		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(req.FolderID, req.UserID); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -270,123 +295,71 @@ func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadT
 		}
 	}
 
-	exists, err := s.FileRepository.CheckFileExistsInFolder(req.FileHash, req.UserID, req.FolderID)
+	var instantFile *model.FileModel
+	targetFile, err := s.FileRepository.GetFileByHashAndUserIDAndFolderID(req.FileHash, req.UserID, req.FolderID)
+	switch {
+	case err == nil:
+		req.Status = model.UploadStatusCompleted
+		req.FileID = &targetFile.ID
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return nil, err
+	default:
+		_, blobErr := s.FileRepository.GetFileByHash(req.FileHash)
+		if blobErr == nil {
+			if err := s.ensureStorageQuota(req.UserID, req.FileSize); err != nil {
+				return nil, err
+			}
+			req.Status = model.UploadStatusCompleted
+			instantFile = &model.FileModel{
+				UserID: req.UserID, FolderID: req.FolderID, Name: req.FileName,
+				Size: req.FileSize, Type: req.FileType, FileHash: req.FileHash,
+			}
+		} else if errors.Is(blobErr, gorm.ErrRecordNotFound) {
+			req.Status = model.UploadStatusUploading
+		} else {
+			return nil, blobErr
+		}
+	}
+
+	created := false
+	err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(req)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errUploadTaskAlreadyExists
+		}
+		created = true
+		if instantFile == nil {
+			return nil
+		}
+		if err := tx.Create(instantFile).Error; err != nil {
+			return err
+		}
+		req.FileID = &instantFile.ID
+		return tx.Model(req).Update("file_id", instantFile.ID).Error
+	})
+	if errors.Is(err, errUploadTaskAlreadyExists) {
+		existingTask, getErr := s.FileRepository.GetUploadTaskByIdempotencyKey(idempotencyKey)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if existingTask.RequestHash != requestHash {
+			return nil, ErrUploadRequestConflict
+		}
+		return existingTask, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	if exists {
-		return s.createInstantCompleteTask(req)
-	}
-
-	existingTask, err := s.FileRepository.GetUploadTaskByHashAndUserID(req.FileHash, req.UserID)
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-		req.Status = model.UploadStatusUploading
-		err = s.FileRepository.CreateUploadTask(req)
-		if err != nil {
-			return nil, err
-		}
-		err = os.MkdirAll(s.ChunkStoragePath+"/"+strconv.FormatUint(uint64(req.ID), 10), 0755)
-		if err != nil {
-			return nil, err
-		}
-		return req, nil
-	}
-
-	if existingTask.Status == model.UploadStatusCompleted {
-		return s.createInstantTransferTask(req, existingTask)
-	}
-
-	return existingTask, nil
-}
-
-func (s *fileService) createInstantCompleteTask(req *model.UploadTask) (*model.UploadTask, error) {
-	task := &model.UploadTask{
-		FileHash:       req.FileHash,
-		FileName:       req.FileName,
-		FileSize:       req.FileSize,
-		ChunkSize:      req.ChunkSize,
-		TotalChunks:    req.TotalChunks,
-		UploadedChunks: model.IntSlice{},
-		FileType:       req.FileType,
-		FolderID:       req.FolderID,
-		UserID:         req.UserID,
-		Status:         model.UploadStatusCompleted,
-	}
-
-	if err := s.FileRepository.CreateUploadTask(task); err != nil {
-		return nil, err
-	}
-
-	exists, err := s.FileRepository.CheckFileExistsInFolder(req.FileHash, req.UserID, req.FolderID)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		if err := s.ensureStorageQuota(req.UserID, req.FileSize); err != nil {
-			return nil, err
-		}
-		fileModel := &model.FileModel{
-			UserID:   req.UserID,
-			FolderID: req.FolderID,
-			Name:     req.FileName,
-			Size:     req.FileSize,
-			Type:     req.FileType,
-			FileHash: req.FileHash,
-		}
-		if err := s.FileRepository.Create(fileModel); err != nil {
+	if created && req.Status == model.UploadStatusUploading {
+		chunkDir := filepath.Join(s.ChunkStoragePath, strconv.FormatUint(uint64(req.ID), 10))
+		if err := os.MkdirAll(chunkDir, 0755); err != nil {
 			return nil, err
 		}
 	}
-
-	for i := 0; i < req.TotalChunks; i++ {
-		task.UploadedChunks = append(task.UploadedChunks, i)
-	}
-
-	return task, nil
-}
-
-func (s *fileService) createInstantTransferTask(req *model.UploadTask, existingTask *model.UploadTask) (*model.UploadTask, error) {
-	_ = existingTask
-	task := &model.UploadTask{
-		FileHash:       req.FileHash,
-		FileName:       req.FileName,
-		FileSize:       req.FileSize,
-		ChunkSize:      req.ChunkSize,
-		TotalChunks:    req.TotalChunks,
-		UploadedChunks: model.IntSlice{},
-		FileType:       req.FileType,
-		FolderID:       req.FolderID,
-		UserID:         req.UserID,
-		Status:         model.UploadStatusCompleted,
-	}
-
-	for i := 0; i < req.TotalChunks; i++ {
-		task.UploadedChunks = append(task.UploadedChunks, i)
-	}
-
-	if err := s.ensureStorageQuota(req.UserID, req.FileSize); err != nil {
-		return nil, err
-	}
-	if err := s.FileRepository.CreateUploadTask(task); err != nil {
-		return nil, err
-	}
-
-	fileModel := &model.FileModel{
-		UserID:   req.UserID,
-		FolderID: req.FolderID,
-		Name:     req.FileName,
-		Size:     req.FileSize,
-		Type:     req.FileType,
-		FileHash: req.FileHash,
-	}
-	if err := s.FileRepository.Create(fileModel); err != nil {
-		return nil, err
-	}
-
-	return task, nil
+	return req, nil
 }
 
 func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq, reader io.Reader, chunkSize int64) error {
@@ -410,16 +383,68 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 		if chunkSize != expectedChunkSize {
 			return ErrChunkSizeMismatch
 		}
+		req.ChunkHash = strings.ToLower(strings.TrimSpace(req.ChunkHash))
+		chunkDir := filepath.Join(s.ChunkStoragePath, strconv.FormatUint(uint64(task.ID), 10))
+		chunkPath := filepath.Join(chunkDir, strconv.Itoa(req.ChunkIndex))
 
-		chunkDir := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10)
+		var existingChunk model.UploadChunk
+		err := tx.Where("task_id = ? AND chunk_index = ?", req.TaskID, req.ChunkIndex).
+			First(&existingChunk).Error
+		if err == nil {
+			if existingChunk.ChunkHash != req.ChunkHash || existingChunk.Size != chunkSize {
+				return ErrChunkConflict
+			}
+			if task.Status == model.UploadStatusCompleted {
+				return nil
+			}
+			info, statErr := os.Stat(chunkPath)
+			if statErr == nil && info.Size() == chunkSize {
+				valid, verifyErr := utils.VerifyFileSHA256(chunkPath, req.ChunkHash)
+				if verifyErr != nil {
+					return verifyErr
+				}
+				if valid {
+					if containsChunk(task.UploadedChunks, req.ChunkIndex) {
+						return nil
+					}
+					if task.Status != model.UploadStatusUploading {
+						return ErrUploadStateConflict
+					}
+					task.UploadedChunks = append(task.UploadedChunks, req.ChunkIndex)
+					sort.Ints(task.UploadedChunks)
+					return tx.Model(&task).Update("uploaded_chunks", task.UploadedChunks).Error
+				}
+			}
+			if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+				return statErr
+			}
+			if task.Status != model.UploadStatusUploading {
+				return ErrUploadStateConflict
+			}
+			if err := tx.Delete(&existingChunk).Error; err != nil {
+				return err
+			}
+			task.UploadedChunks = withoutChunk(task.UploadedChunks, req.ChunkIndex)
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if task.Status != model.UploadStatusUploading {
+			return ErrUploadStateConflict
+		}
+
 		if err := os.MkdirAll(chunkDir, 0755); err != nil {
 			return err
 		}
 
-		chunkPath := chunkDir + "/" + strconv.Itoa(req.ChunkIndex)
-		tmpPath := chunkPath + ".tmp"
+		tmpToken, err := generateRandomHex(8)
+		if err != nil {
+			return err
+		}
+		tmpPath := chunkPath + ".tmp-" + tmpToken
+		defer os.Remove(tmpPath)
 
-		dst, err := os.Create(tmpPath)
+		dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 		if err != nil {
 			return err
 		}
@@ -436,16 +461,15 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			return ErrChunkSizeMismatch
 		}
 
-		if err := os.Rename(tmpPath, chunkPath); err != nil {
-			return err
-		}
-
-		ok, err := utils.VerifyFileSHA256(chunkPath, req.ChunkHash)
+		ok, err := utils.VerifyFileSHA256(tmpPath, req.ChunkHash)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return errors.New("chunk hash mismatch")
+			return ErrChunkHashMismatch
+		}
+		if err := os.Rename(tmpPath, chunkPath); err != nil {
+			return err
 		}
 
 		if !containsChunk(task.UploadedChunks, req.ChunkIndex) {
@@ -453,102 +477,189 @@ func (s *fileService) UploadFileChunkStream(userID uint, req *dto.UploadChunkReq
 			sort.Ints(task.UploadedChunks)
 		}
 
-		return tx.Save(&task).Error
+		chunkRecord := &model.UploadChunk{
+			TaskID: req.TaskID, ChunkIndex: req.ChunkIndex,
+			ChunkHash: req.ChunkHash, Size: chunkSize,
+		}
+		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(chunkRecord)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			var winner model.UploadChunk
+			if err := tx.Where("task_id = ? AND chunk_index = ?", req.TaskID, req.ChunkIndex).First(&winner).Error; err != nil {
+				return err
+			}
+			if winner.ChunkHash != req.ChunkHash || winner.Size != chunkSize {
+				return ErrChunkConflict
+			}
+		}
+
+		return tx.Model(&task).Update("uploaded_chunks", task.UploadedChunks).Error
 	})
 }
 
-func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) error {
+func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUploadedChunksResp, error) {
+	leaseID, err := s.nextMergeLeaseID()
+	if err != nil {
+		return nil, err
+	}
+	now := s.currentTime()
+	leaseExpiresAt := now.Add(10 * time.Minute)
+	acquire := s.FileRepository.DB.Model(&model.UploadTask{}).
+		Where("id = ? AND user_id = ? AND (status = ? OR (status = ? AND (merge_lease_expires_at IS NULL OR merge_lease_expires_at < ?)))",
+			taskID, userID, model.UploadStatusUploading, model.UploadStatusMerging, now).
+		Updates(map[string]interface{}{
+			"status":                 model.UploadStatusMerging,
+			"merge_lease_id":         leaseID,
+			"merge_lease_expires_at": leaseExpiresAt,
+		})
+	if acquire.Error != nil {
+		return nil, acquire.Error
+	}
+	if acquire.RowsAffected == 0 {
+		task, err := s.FileRepository.GetUploadTaskByIDAndUserID(taskID, userID)
+		if err != nil {
+			return nil, err
+		}
+		switch task.Status {
+		case model.UploadStatusMerging:
+			return &vo.MergeUploadedChunksResp{Status: model.UploadStatusMerging}, nil
+		case model.UploadStatusCompleted:
+			return &vo.MergeUploadedChunksResp{Status: model.UploadStatusCompleted, FileID: task.FileID}, nil
+		default:
+			return nil, ErrUploadStateConflict
+		}
+	}
+
+	mergeCompleted := false
+	defer func() {
+		if mergeCompleted {
+			return
+		}
+		_ = s.FileRepository.DB.Model(&model.UploadTask{}).
+			Where("id = ? AND user_id = ? AND merge_lease_id = ?", taskID, userID, leaseID).
+			Updates(map[string]interface{}{
+				"status":                 model.UploadStatusUploading,
+				"merge_lease_id":         "",
+				"merge_lease_expires_at": nil,
+			}).Error
+	}()
+
 	task, err := s.FileRepository.GetUploadTaskByIDAndUserID(taskID, userID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if task.Status == model.UploadStatusCompleted {
-		return nil
+	if task.MergeLeaseID != leaseID || task.Status != model.UploadStatusMerging {
+		return nil, ErrUploadStateConflict
 	}
 	if !utils.HasAllChunks(task.UploadedChunks, task.TotalChunks) {
-		return errors.New("not all chunks uploaded")
+		return nil, ErrUploadIncomplete
 	}
 	if len(task.FileHash) < 4 {
-		return errors.New("invalid file hash")
+		return nil, errors.New("invalid file hash")
 	}
 
 	var totalChunkSize int64
+	chunkDir := filepath.Join(s.ChunkStoragePath, strconv.FormatUint(uint64(task.ID), 10))
 	for i := 0; i < task.TotalChunks; i++ {
-		chunkPath := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10) + "/" + strconv.Itoa(i)
+		chunkPath := filepath.Join(chunkDir, strconv.Itoa(i))
 		info, err := os.Stat(chunkPath)
 		if err != nil {
-			return errors.New("chunk file not found")
+			return nil, errors.New("chunk file not found")
 		}
 		totalChunkSize += info.Size()
 	}
 	if uint64(totalChunkSize) != task.FileSize {
-		return ErrChunkSizeMismatch
+		return nil, ErrChunkSizeMismatch
 	}
-
 	if err := s.ensureStorageQuota(userID, task.FileSize); err != nil {
-		return err
+		return nil, err
 	}
 
 	dirPath, err := s.buildStorageDir(task.FileHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return err
+		return nil, err
 	}
 	filePath, err := s.buildCanonicalStoragePath(task.FileHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	file, err := os.Create(filePath)
+	tmpPath := filePath + ".merge-" + leaseID
+	defer os.Remove(tmpPath)
+	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer file.Close()
 	for i := 0; i < task.TotalChunks; i++ {
-		chunkPath := s.ChunkStoragePath + "/" + strconv.FormatUint(uint64(task.ID), 10) + "/" + strconv.Itoa(i)
-		chunkData, err := os.ReadFile(chunkPath)
+		chunkPath := filepath.Join(chunkDir, strconv.Itoa(i))
+		chunkFile, err := os.Open(chunkPath)
 		if err != nil {
-			return err
+			_ = file.Close()
+			return nil, err
 		}
-		_, err = file.Write(chunkData)
-		if err != nil {
-			return err
+		_, copyErr := io.Copy(file, chunkFile)
+		closeErr := chunkFile.Close()
+		if copyErr != nil {
+			_ = file.Close()
+			return nil, copyErr
+		}
+		if closeErr != nil {
+			_ = file.Close()
+			return nil, closeErr
 		}
 	}
 	if err := file.Close(); err != nil {
-		return err
+		return nil, err
 	}
-	ok, err := utils.VerifyFileSHA256(filePath, task.FileHash)
+	ok, err := utils.VerifyFileSHA256(tmpPath, task.FileHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !ok {
-		return errors.New("merged file hash mismatch")
+		return nil, errors.New("merged file hash mismatch")
 	}
-	// 使用事务确保数据库操作原子性
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		return nil, err
+	}
+
+	var fileID uint
 	err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
-		task.Status = model.UploadStatusCompleted
-		if err := tx.Save(task).Error; err != nil {
+		var lockedTask model.UploadTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND user_id = ?", taskID, userID).First(&lockedTask).Error; err != nil {
 			return err
 		}
+		if lockedTask.Status == model.UploadStatusCompleted && lockedTask.FileID != nil {
+			fileID = *lockedTask.FileID
+			return nil
+		}
+		if lockedTask.Status != model.UploadStatusMerging || lockedTask.MergeLeaseID != leaseID {
+			return ErrUploadStateConflict
+		}
 		fileModel := &model.FileModel{
-			UserID:   task.UserID,
-			FolderID: task.FolderID,
-			Name:     task.FileName,
-			Size:     task.FileSize,
-			Type:     task.FileType,
-			FileHash: task.FileHash,
+			UserID: lockedTask.UserID, FolderID: lockedTask.FolderID, Name: lockedTask.FileName,
+			Size: lockedTask.FileSize, Type: lockedTask.FileType, FileHash: lockedTask.FileHash,
 		}
 		if err := tx.Create(fileModel).Error; err != nil {
 			return err
 		}
-		return nil
+		fileID = fileModel.ID
+		return tx.Model(&lockedTask).Updates(map[string]interface{}{
+			"status":                 model.UploadStatusCompleted,
+			"file_id":                fileID,
+			"merge_lease_id":         "",
+			"merge_lease_expires_at": nil,
+		}).Error
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	mergeCompleted = true
+	return &vo.MergeUploadedChunksResp{Status: model.UploadStatusCompleted, FileID: &fileID}, nil
 }
 
 func (s *fileService) GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error) {
@@ -1071,12 +1182,16 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 	return s.StreamFolderAsZip(userID, folderModel.ID, writer)
 }
 
-func generatePublicShareToken() (string, error) {
-	buf := make([]byte, 24)
+func generateRandomHex(byteCount int) (string, error) {
+	buf := make([]byte, byteCount)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func generatePublicShareToken() (string, error) {
+	return generateRandomHex(24)
 }
 
 func (s *fileService) DownloadByPickUpCode(code string, writer io.Writer, setMeta func(fileName, contentType string)) error {

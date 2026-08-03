@@ -10,9 +10,11 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	"cloud-drive-backend/internal/dto"
 	"cloud-drive-backend/internal/model"
 	"cloud-drive-backend/internal/repository"
 )
@@ -201,6 +203,472 @@ func TestFileService_Errors(t *testing.T) {
 	assert.NotNil(t, ErrInvalidMIMEType)
 }
 
+func TestBuildUploadIdentity_IsStableForTheSameLogicalUpload(t *testing.T) {
+	task := &model.UploadTask{
+		UserID:      7,
+		FolderID:    9,
+		FileName:    " report.pdf ",
+		FileHash:    "abcdef0123456789",
+		FileSize:    1024,
+		ChunkSize:   512,
+		TotalChunks: 2,
+		FileType:    "application/pdf",
+	}
+
+	firstKey, firstRequestHash, firstName, err := buildUploadIdentity(task)
+	assert.NoError(t, err)
+	secondKey, secondRequestHash, secondName, err := buildUploadIdentity(task)
+
+	assert.NoError(t, err)
+	assert.Equal(t, firstKey, secondKey)
+	assert.Equal(t, firstRequestHash, secondRequestHash)
+	assert.Equal(t, "report.pdf", firstName)
+	assert.Equal(t, firstName, secondName)
+}
+
+func TestBuildUploadIdentity_SeparatesResourceIdentityFromRequestParameters(t *testing.T) {
+	base := &model.UploadTask{
+		UserID:      7,
+		FolderID:    9,
+		FileName:    "report.pdf",
+		FileHash:    "abcdef0123456789",
+		FileSize:    1024,
+		ChunkSize:   512,
+		TotalChunks: 2,
+		FileType:    "application/pdf",
+	}
+	changedChunking := *base
+	changedChunking.ChunkSize = 1024
+	changedChunking.TotalChunks = 1
+
+	baseKey, baseRequestHash, _, err := buildUploadIdentity(base)
+	assert.NoError(t, err)
+	changedKey, changedRequestHash, _, err := buildUploadIdentity(&changedChunking)
+
+	assert.NoError(t, err)
+	assert.Equal(t, baseKey, changedKey)
+	assert.NotEqual(t, baseRequestHash, changedRequestHash)
+}
+
+func TestInitUploadFile_ReusesTheTaskForTheSameRequest(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	req := &model.UploadTask{
+		UserID:      7,
+		FolderID:    0,
+		FileName:    "report.pdf",
+		FileHash:    "abcdef0123456789",
+		FileSize:    1024,
+		ChunkSize:   512,
+		TotalChunks: 2,
+		FileType:    "application/pdf",
+	}
+	idempotencyKey, requestHash, _, err := buildUploadIdentity(req)
+	assert.NoError(t, err)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(idempotencyKey, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_name", "file_hash", "file_size", "chunk_size", "total_chunks",
+			"uploaded_chunks", "file_type", "folder_id", "user_id", "status",
+			"idempotency_key", "request_hash",
+		}).AddRow(
+			41, "report.pdf", req.FileHash, req.FileSize, req.ChunkSize, req.TotalChunks,
+			"[0]", req.FileType, req.FolderID, req.UserID, model.UploadStatusUploading,
+			idempotencyKey, requestHash,
+		))
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	task, err := svc.InitUploadFile(req)
+
+	require.NoError(t, err)
+	assert.Equal(t, uint(41), task.ID)
+	assert.Equal(t, model.IntSlice{0}, task.UploadedChunks)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInitUploadFile_RejectsDifferentParametersForTheSameIdentity(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	req := &model.UploadTask{
+		UserID:      7,
+		FolderID:    0,
+		FileName:    "report.pdf",
+		FileHash:    "abcdef0123456789",
+		FileSize:    1024,
+		ChunkSize:   1024,
+		TotalChunks: 1,
+		FileType:    "application/pdf",
+	}
+	idempotencyKey, _, _, err := buildUploadIdentity(req)
+	assert.NoError(t, err)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(idempotencyKey, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_name", "file_hash", "file_size", "chunk_size", "total_chunks",
+			"uploaded_chunks", "file_type", "folder_id", "user_id", "status",
+			"idempotency_key", "request_hash",
+		}).AddRow(
+			41, "report.pdf", req.FileHash, req.FileSize, 512, 2,
+			"[0]", req.FileType, req.FolderID, req.UserID, model.UploadStatusUploading,
+			idempotencyKey, "a-different-request-hash",
+		))
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	task, err := svc.InitUploadFile(req)
+
+	assert.Nil(t, task)
+	assert.ErrorContains(t, err, "upload request conflicts")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInitUploadFile_ReturnsTheWinningTaskAfterAConcurrentInsert(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	req := &model.UploadTask{
+		UserID: 7, FolderID: 0, FileName: "report.pdf", FileHash: "abcdef0123456789",
+		FileSize: 1024, ChunkSize: 512, TotalChunks: 2, FileType: "application/pdf",
+		UploadedChunks: model.IntSlice{},
+	}
+	idempotencyKey, requestHash, _, err := buildUploadIdentity(req)
+	require.NoError(t, err)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(idempotencyKey, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(req.FileHash, req.UserID, req.FolderID, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(req.FileHash, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(idempotencyKey, 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_name", "file_hash", "file_size", "chunk_size", "total_chunks",
+			"uploaded_chunks", "file_type", "folder_id", "user_id", "status",
+			"idempotency_key", "request_hash",
+		}).AddRow(
+			55, "report.pdf", req.FileHash, req.FileSize, req.ChunkSize, req.TotalChunks,
+			"[]", req.FileType, req.FolderID, req.UserID, model.UploadStatusUploading,
+			idempotencyKey, requestHash,
+		))
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	task, err := svc.InitUploadFile(req)
+
+	require.NoError(t, err)
+	assert.Equal(t, uint(55), task.ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInitUploadFile_RetainsTaskWhenChunkDirectoryCreationFails(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	req := &model.UploadTask{
+		UserID: 7, FolderID: 0, FileName: "report.pdf", FileHash: "abcdef0123456789",
+		FileSize: 1024, ChunkSize: 512, TotalChunks: 2, FileType: "application/pdf",
+		UploadedChunks: model.IntSlice{},
+	}
+	idempotencyKey, _, _, err := buildUploadIdentity(req)
+	require.NoError(t, err)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(idempotencyKey, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(req.FileHash, req.UserID, req.FolderID, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(req.FileHash, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(41, 1))
+	mock.ExpectCommit()
+
+	deleted := false
+	require.NoError(t, db.Callback().Delete().Before("gorm:delete").Register("test:observe-upload-task-delete", func(*gorm.DB) {
+		deleted = true
+	}))
+	blockedChunkRoot := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blockedChunkRoot, []byte("blocked"), 0600))
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: blockedChunkRoot,
+		},
+	}
+
+	task, err := svc.InitUploadFile(req)
+
+	assert.Nil(t, task)
+	require.Error(t, err)
+	assert.False(t, deleted)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUploadFileChunkStream_ReusesAnIdenticalChunk(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	const chunkHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_size", "chunk_size", "total_chunks", "uploaded_chunks", "user_id", "status",
+		}).AddRow(41, 5, 5, 1, "[0]", 7, model.UploadStatusUploading))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_chunks`")).
+		WithArgs(uint(41), 0, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "task_id", "chunk_index", "chunk_hash", "size"}).
+			AddRow(3, 41, 0, chunkHash, 5))
+	mock.ExpectCommit()
+
+	chunkRoot := t.TempDir()
+	chunkDir := filepath.Join(chunkRoot, "41")
+	require.NoError(t, os.MkdirAll(chunkDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(chunkDir, "0"), []byte("hello"), 0600))
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: chunkRoot,
+		},
+	}
+	err := svc.UploadFileChunkStream(7, &dto.UploadChunkReq{
+		TaskID: 41, ChunkIndex: 0, ChunkHash: chunkHash,
+	}, bytes.NewBufferString("hello"), 5)
+
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUploadFileChunkStream_RepairsMissingProgressWhenReusingAnIdenticalChunk(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	const chunkHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_size", "chunk_size", "total_chunks", "uploaded_chunks", "user_id", "status",
+		}).AddRow(41, 5, 5, 1, "[]", 7, model.UploadStatusUploading))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_chunks`")).
+		WithArgs(uint(41), 0, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "task_id", "chunk_index", "chunk_hash", "size"}).
+			AddRow(3, 41, 0, chunkHash, 5))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	chunkRoot := t.TempDir()
+	chunkDir := filepath.Join(chunkRoot, "41")
+	require.NoError(t, os.MkdirAll(chunkDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(chunkDir, "0"), []byte("hello"), 0600))
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: chunkRoot,
+		},
+	}
+	err := svc.UploadFileChunkStream(7, &dto.UploadChunkReq{
+		TaskID: 41, ChunkIndex: 0, ChunkHash: chunkHash,
+	}, bytes.NewBufferString("hello"), 5)
+
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUploadFileChunkStream_RejectsConflictingChunkContent(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	const existingHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	const incomingHash = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_size", "chunk_size", "total_chunks", "uploaded_chunks", "user_id", "status",
+		}).AddRow(41, 5, 5, 1, "[0]", 7, model.UploadStatusUploading))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_chunks`")).
+		WithArgs(uint(41), 0, 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "task_id", "chunk_index", "chunk_hash", "size"}).
+			AddRow(3, 41, 0, existingHash, 5))
+	mock.ExpectRollback()
+
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: t.TempDir(),
+		},
+	}
+	err := svc.UploadFileChunkStream(7, &dto.UploadChunkReq{
+		TaskID: 41, ChunkIndex: 0, ChunkHash: incomingHash,
+	}, bytes.NewBufferString("world"), 5)
+
+	assert.ErrorContains(t, err, "chunk content conflicts")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUploadFileChunkStream_PersistsTheChunkAndItsUniqueMetadata(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	const chunkHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_size", "chunk_size", "total_chunks", "uploaded_chunks", "user_id", "status",
+		}).AddRow(41, 5, 5, 1, "[]", 7, model.UploadStatusUploading))
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_chunks`")).
+		WithArgs(uint(41), 0, 1).
+		WillReturnError(gorm.ErrRecordNotFound)
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `upload_chunks`")).
+		WillReturnResult(sqlmock.NewResult(3, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	chunkRoot := t.TempDir()
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: chunkRoot,
+		},
+	}
+	err := svc.UploadFileChunkStream(7, &dto.UploadChunkReq{
+		TaskID: 41, ChunkIndex: 0, ChunkHash: chunkHash,
+	}, bytes.NewBufferString("hello"), 5)
+
+	require.NoError(t, err)
+	stored, err := os.ReadFile(filepath.Join(chunkRoot, "41", "0"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), stored)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMergeUploadedChunks_ReturnsMergingWhenAnotherRequestOwnsTheLease(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "file_id"}).
+			AddRow(41, 7, model.UploadStatusMerging, nil))
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	result, err := svc.MergeUploadedChunks(7, 41)
+
+	require.NoError(t, err)
+	assert.Equal(t, model.UploadStatusMerging, result.Status)
+	assert.Nil(t, result.FileID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMergeUploadedChunks_ReturnsTheSameFileForACompletedTask(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "status", "file_id"}).
+			AddRow(41, 7, model.UploadStatusCompleted, 88))
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	result, err := svc.MergeUploadedChunks(7, 41)
+
+	require.NoError(t, err)
+	assert.Equal(t, model.UploadStatusCompleted, result.Status)
+	require.NotNil(t, result.FileID)
+	assert.Equal(t, uint(88), *result.FileID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMergeUploadedChunks_LeaseOwnerCreatesOneFileAndCompletesTheTask(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	const fileHash = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	fixedNow := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	chunkRoot := t.TempDir()
+	fileRoot := t.TempDir()
+	chunkDir := filepath.Join(chunkRoot, "41")
+	require.NoError(t, os.MkdirAll(chunkDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(chunkDir, "0"), []byte("hello"), 0600))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_name", "file_hash", "file_size", "chunk_size", "total_chunks",
+			"uploaded_chunks", "file_type", "folder_id", "user_id", "status", "merge_lease_id",
+		}).AddRow(
+			41, "hello.txt", fileHash, 5, 5, 1, "[0]", "text/plain", 0, 7,
+			model.UploadStatusMerging, "fixed-merge-lease",
+		))
+	mock.ExpectQuery("SELECT COALESCE\\(SUM\\(size\\), 0\\)").
+		WithArgs(uint(7)).
+		WillReturnRows(sqlmock.NewRows([]string{"used"}).AddRow(0))
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+		WithArgs(uint(41), uint(7), 1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "file_name", "file_hash", "file_size", "chunk_size", "total_chunks",
+			"uploaded_chunks", "file_type", "folder_id", "user_id", "status", "merge_lease_id",
+		}).AddRow(
+			41, "hello.txt", fileHash, 5, 5, 1, "[0]", "text/plain", 0, 7,
+			model.UploadStatusMerging, "fixed-merge-lease",
+		))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `file_models`")).
+		WillReturnResult(sqlmock.NewResult(88, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `upload_tasks`")).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	svc := &fileService{
+		FileRepository: repository.NewFileRepository(db),
+		FileServiceOptions: FileServiceOptions{
+			ChunkStoragePath: chunkRoot,
+			FileStoragePath:  fileRoot,
+		},
+		newMergeLeaseID: func() (string, error) { return "fixed-merge-lease", nil },
+		now:             func() time.Time { return fixedNow },
+	}
+	result, err := svc.MergeUploadedChunks(7, 41)
+
+	require.NoError(t, err)
+	assert.Equal(t, model.UploadStatusCompleted, result.Status)
+	require.NotNil(t, result.FileID)
+	assert.Equal(t, uint(88), *result.FileID)
+	merged, err := os.ReadFile(filepath.Join(fileRoot, fileHash[0:2], fileHash[2:4], fileHash))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), merged)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Test allowedMIMETypes map
 func TestAllowedMIMETypes(t *testing.T) {
 	// Verify the map is properly initialized
@@ -209,17 +677,6 @@ func TestAllowedMIMETypes(t *testing.T) {
 	assert.True(t, allowedMIMETypes["application/pdf"])
 	assert.True(t, allowedMIMETypes["application/zip"])
 	assert.True(t, allowedMIMETypes["text/"])
-}
-
-// Test reservedNames map
-func TestReservedNames(t *testing.T) {
-	// Verify reserved Windows names are blocked
-	assert.True(t, reservedNames["CON"])
-	assert.True(t, reservedNames["PRN"])
-	assert.True(t, reservedNames["AUX"])
-	assert.True(t, reservedNames["NUL"])
-	assert.True(t, reservedNames["COM1"])
-	assert.True(t, reservedNames["LPT1"])
 }
 
 // Test sanitizeFileName with null bytes
