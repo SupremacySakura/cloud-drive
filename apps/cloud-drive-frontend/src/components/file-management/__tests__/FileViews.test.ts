@@ -39,7 +39,7 @@ describe('file management views', () => {
       global: { stubs: { Icon: true } },
     })
 
-    const rowCheckboxes = wrapper.findAll('tbody input[type="checkbox"]')
+    const rowCheckboxes = wrapper.findAll('input[type="checkbox"][aria-label^="选择 "]')
     expect((rowCheckboxes[0]?.element as HTMLInputElement).checked).toBe(true)
     expect((rowCheckboxes[1]?.element as HTMLInputElement).checked).toBe(false)
 

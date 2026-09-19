@@ -80,10 +80,9 @@ export const ownerInitials = (name: string) => {
 export const uploadTaskMeta = (status: UploadTaskStatus) => {
   const active = ['pending', 'hashing', 'uploading', 'merging'].includes(status)
   if (status === 'success')
-    return { active, label: '成功', color: 'text-green-500', bar: 'bg-green-500' }
-  if (status === 'failed')
-    return { active, label: '失败', color: 'text-red-500', bar: 'bg-red-500' }
+    return { active, label: '成功', color: 'text-primary', bar: 'bg-primary' }
+  if (status === 'failed') return { active, label: '失败', color: 'text-danger', bar: 'bg-danger' }
   if (status === 'canceled')
-    return { active, label: '取消', color: 'text-slate-400', bar: 'bg-slate-400' }
+    return { active, label: '取消', color: 'text-label-tertiary', bar: 'bg-surface-tertiary' }
   return { active, label: null, color: 'text-primary', bar: 'bg-primary' }
 }

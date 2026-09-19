@@ -26,6 +26,7 @@ type RecentActivityCard = {
   time: string
   size: string
   icon: string
+  colorClass: string
 }
 
 const storageUsedPercent = ref(0)
@@ -38,6 +39,9 @@ const storageUsedStr = computed(() => formatBytes(storageUsedBytes.value))
 const storageTotalStr = computed(() => formatBytes(storageTotalBytes.value))
 const storageLeftStr = computed(() => formatBytes(storageLeftBytes.value))
 
+// 用量 ≥ 90% 转 warning 警示（DESIGN.md：warning 用于空间不足）
+const isStorageWarning = computed(() => storageUsedPercent.value >= 90)
+
 const fileStats = ref<FileStatCard[]>([])
 const recentActivities = ref<RecentActivityCard[]>([])
 
@@ -45,27 +49,27 @@ const fileTypeMeta: Record<string, { title: string; icon: string; colorClass: st
   image: {
     title: '图片',
     icon: 'material-symbols:image-outline-rounded',
-    colorClass: 'bg-blue-100 text-blue-600',
+    colorClass: 'bg-info-tint text-info',
   },
   video: {
     title: '视频',
     icon: 'material-symbols:videocam-outline-rounded',
-    colorClass: 'bg-red-100 text-red-600',
+    colorClass: 'bg-pink-tint text-pink',
   },
   audio: {
     title: '音频',
     icon: 'material-symbols:music-note-rounded',
-    colorClass: 'bg-purple-100 text-purple-600',
+    colorClass: 'bg-purple-tint text-purple',
   },
   document: {
     title: '文档',
     icon: 'material-symbols:description-outline-rounded',
-    colorClass: 'bg-orange-100 text-orange-600',
+    colorClass: 'bg-warning-tint text-warning',
   },
   other: {
     title: '其他',
     icon: 'material-symbols:insert-drive-file-outline-rounded',
-    colorClass: 'bg-slate-100 text-slate-600',
+    colorClass: 'bg-surface-tertiary text-label-secondary',
   },
 }
 
@@ -87,12 +91,9 @@ const mapFileStats = (stats: DashboardFileStatItem[]): FileStatCard[] => {
   })
 }
 
-const mapActivityIcon = (fileType: string) => {
-  if (fileType === 'image') return 'material-symbols:image-outline-rounded'
-  if (fileType === 'video') return 'material-symbols:videocam-outline-rounded'
-  if (fileType === 'audio') return 'material-symbols:music-note-rounded'
-  if (fileType === 'document') return 'material-symbols:description-outline-rounded'
-  return 'material-symbols:insert-drive-file-outline-rounded'
+const mapActivityMeta = (fileType: string) => {
+  const meta = fileTypeMeta[fileType] ?? fileTypeMeta.other
+  return { icon: meta.icon, colorClass: meta.colorClass }
 }
 
 const formatRelativeTime = (value: string) => {
@@ -116,7 +117,7 @@ const mapRecentActivities = (activities: DashboardRecentActivityItem[]): RecentA
     highlight: sanitizeFileName(item.folder_name || '根目录'),
     time: formatRelativeTime(item.updated_at),
     size: formatBytes(item.size),
-    icon: mapActivityIcon(item.file_type),
+    ...mapActivityMeta(item.file_type),
   }))
 }
 
@@ -165,156 +166,172 @@ watch(
 </script>
 
 <template>
-  <div
-    class="flex-1 h-full bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 overflow-y-auto"
-  >
+  <div class="h-full flex-1 overflow-y-auto">
     <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
 
     <main v-else class="space-y-6 p-4 sm:p-6 lg:space-y-8 lg:p-8">
-      <!-- Welcome and Quick Actions -->
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <!-- 页面标题 -->
+      <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h2 class="text-2xl font-bold">仪表盘</h2>
-          <p class="text-slate-500 text-sm">欢迎回来，这是您的存储情况。</p>
+          <h2 class="text-title-2">仪表盘</h2>
+          <p class="text-subhead text-label-secondary">欢迎回来，这是您的存储情况。</p>
         </div>
       </div>
 
-      <!-- Storage and Stats Grid -->
+      <!-- 存储用量 + 类型统计 -->
       <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-        <!-- Storage Card -->
-        <div
-          class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm lg:col-span-4 lg:self-start"
-        >
-          <div class="mb-5 flex items-start justify-between gap-4">
-            <h3 class="font-bold">存储使用情况</h3>
-            <Icon
-              icon="material-symbols:info-outline-rounded"
-              class="shrink-0 text-2xl text-slate-400"
-              aria-hidden="true"
-            />
+        <!-- 存储卡：品牌绿环形进度（≥90% 转 warning） -->
+        <div class="rounded-md bg-surface p-6 shadow-card lg:col-span-4 lg:self-start">
+          <div class="mb-3 flex items-start justify-between gap-4">
+            <h3 class="text-title-3">存储使用情况</h3>
+            <span
+              class="flex h-9 w-9 flex-none items-center justify-center rounded-sm text-label-tertiary"
+            >
+              <Icon
+                icon="material-symbols:info-outline-rounded"
+                class="text-[20px]"
+                aria-hidden="true"
+              />
+            </span>
           </div>
 
-          <div class="flex items-center justify-center py-3">
-            <div class="relative flex items-center justify-center">
-              <svg class="w-32 h-32 transform -rotate-90">
-                <circle
-                  class="text-slate-100 dark:text-slate-800"
-                  cx="64"
-                  cy="64"
-                  fill="transparent"
-                  r="58"
-                  stroke="currentColor"
-                  stroke-width="8"
-                ></circle>
-                <circle
-                  class="text-primary transition-all duration-1000 ease-out"
-                  cx="64"
-                  cy="64"
-                  fill="transparent"
-                  r="58"
-                  stroke="currentColor"
-                  :stroke-dasharray="circumference"
-                  :stroke-dashoffset="dashOffset"
-                  stroke-width="8"
-                  stroke-linecap="round"
-                ></circle>
-              </svg>
-              <div class="absolute inset-0 flex flex-col items-center justify-center">
-                <span class="text-2xl font-bold">{{ storageUsedPercent }}%</span>
-                <span class="text-[10px] uppercase font-bold text-slate-400">已使用</span>
-              </div>
+          <div class="relative flex items-center justify-center py-3">
+            <svg class="h-32 w-32 -rotate-90">
+              <circle
+                class="text-surface-tertiary"
+                cx="64"
+                cy="64"
+                fill="transparent"
+                r="58"
+                stroke="currentColor"
+                stroke-width="8"
+              />
+              <circle
+                :class="isStorageWarning ? 'text-warning' : 'text-primary'"
+                class="transition-all duration-1000 ease-out"
+                cx="64"
+                cy="64"
+                fill="transparent"
+                r="58"
+                stroke="currentColor"
+                :stroke-dasharray="circumference"
+                :stroke-dashoffset="dashOffset"
+                stroke-width="8"
+                stroke-linecap="round"
+              />
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span class="text-title-1" :class="isStorageWarning && 'text-danger'">
+                {{ storageUsedPercent }}%
+              </span>
+              <span
+                class="text-caption font-semibold uppercase tracking-[0.08em] text-label-tertiary"
+              >
+                已使用
+              </span>
             </div>
           </div>
 
-          <div class="mt-5 space-y-3 border-t border-slate-100 pt-5 text-sm dark:border-slate-800">
+          <div class="mt-4 space-y-2.5 border-t border-hairline pt-4 text-subhead">
             <div class="flex items-center justify-between gap-4">
-              <span class="text-slate-500">已使用</span>
-              <span class="font-semibold text-slate-900 dark:text-slate-100">{{
-                storageUsedStr
-              }}</span>
+              <span class="text-label-secondary">已使用</span>
+              <span class="font-semibold text-label">{{ storageUsedStr }}</span>
             </div>
             <div class="flex items-center justify-between gap-4">
-              <span class="text-slate-500">总容量</span>
-              <span class="font-semibold text-slate-900 dark:text-slate-100">{{
-                storageTotalStr
-              }}</span>
+              <span class="text-label-secondary">总容量</span>
+              <span class="font-semibold text-label">{{ storageTotalStr }}</span>
             </div>
             <div class="flex items-center justify-between gap-4">
-              <span class="text-slate-500">剩余</span>
-              <span class="font-semibold text-primary">{{ storageLeftStr }}</span>
+              <span class="text-label-secondary">剩余</span>
+              <span
+                class="font-semibold"
+                :class="isStorageWarning ? 'text-danger' : 'text-primary'"
+                >{{ storageLeftStr }}</span
+              >
             </div>
           </div>
         </div>
 
-        <!-- File Type Stats -->
-        <div class="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+        <!-- 文件类型统计：hover 微浮起 + 阴影加深 -->
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:col-span-8 xl:grid-cols-3">
           <div
             v-for="stat in fileStats"
             :key="stat.type"
-            class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:border-primary/30 transition-colors"
+            class="flex flex-col justify-between rounded-md bg-surface p-5 shadow-card transition-[transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-popover"
           >
             <div
               :class="[
-                'w-10 h-10 rounded-lg flex items-center justify-center mb-4',
+                'mb-4 flex h-10 w-10 items-center justify-center rounded-sm',
                 stat.colorClass,
               ]"
             >
-              <Icon :icon="stat.icon" class="text-2xl" />
+              <Icon :icon="stat.icon" class="text-[20px]" />
             </div>
             <div>
-              <h4 class="text-sm font-semibold text-slate-500">{{ stat.title }}</h4>
-              <p class="text-2xl font-bold mt-1">{{ stat.count }}</p>
-              <p class="text-xs text-slate-400 mt-2">共 {{ stat.size }}</p>
+              <h4 class="text-subhead text-label-secondary">{{ stat.title }}</h4>
+              <p class="text-title-1 mt-0.5">{{ stat.count }}</p>
+              <p class="text-caption mt-1.5 text-label-tertiary">共 {{ stat.size }}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Recent Activity -->
-      <div
-        class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
-      >
-        <div
-          class="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center"
-        >
-          <h3 class="font-bold">最近活动</h3>
-          <span class="text-sm text-slate-500">{{
+      <!-- 最近活动：iCloud Drive 风格 48px 行 -->
+      <div class="overflow-hidden rounded-md bg-surface shadow-card">
+        <div class="flex items-center justify-between border-b border-hairline p-6">
+          <h3 class="text-title-3">最近活动</h3>
+          <span class="text-subhead text-label-secondary">{{
             isLoading ? '加载中...' : `${recentActivities.length} 条`
           }}</span>
         </div>
-        <div class="divide-y divide-slate-100 dark:divide-slate-800">
-          <div
-            v-if="!isLoading && recentActivities.length === 0"
-            class="p-6 text-sm text-slate-500"
-          >
-            暂无最近活动
-          </div>
-          <div
-            v-for="activity in recentActivities"
-            :key="activity.id"
-            class="flex flex-col gap-3 p-4 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div class="flex min-w-0 items-center gap-4">
-              <div
-                class="w-10 h-10 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center"
-              >
-                <Icon :icon="activity.icon" class="text-2xl text-slate-500" />
-              </div>
-              <div class="min-w-0">
-                <p class="truncate text-sm font-semibold">{{ activity.name }}</p>
-                <p class="truncate text-xs text-slate-500">
-                  {{ activity.desc }} <span class="text-primary">{{ activity.highlight }}</span>
-                </p>
-              </div>
-            </div>
-            <div class="text-left sm:text-right">
-              <p class="text-xs text-slate-400">{{ activity.time }}</p>
-              <p class="text-xs font-medium text-slate-600 dark:text-slate-400 mt-1">
-                {{ activity.size }}
-              </p>
+
+        <!-- 加载骨架 -->
+        <div v-if="isLoading" class="space-y-3.5 p-6">
+          <div v-for="n in 2" :key="n" class="flex animate-pulse items-center gap-3">
+            <div class="h-8 w-8 flex-none rounded-sm bg-surface-secondary"></div>
+            <div class="flex-1 space-y-1.5">
+              <div class="h-3 w-1/2 rounded-full bg-surface-secondary"></div>
+              <div class="h-3 w-1/3 rounded-full bg-surface-secondary"></div>
             </div>
           </div>
         </div>
+
+        <template v-else>
+          <p
+            v-if="recentActivities.length === 0"
+            class="py-8 text-center text-subhead text-label-secondary"
+          >
+            暂无最近活动
+          </p>
+
+          <template v-for="(activity, index) in recentActivities" :key="activity.id">
+            <div
+              class="flex min-h-12 items-center gap-3 px-6 transition-colors duration-150 hover:bg-surface-secondary"
+            >
+              <div
+                class="flex h-8 w-8 flex-none items-center justify-center rounded-sm"
+                :class="activity.colorClass"
+              >
+                <Icon :icon="activity.icon" class="text-[16px]" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-[15px] font-semibold leading-[22px]">
+                  {{ activity.name }}
+                </p>
+                <p class="truncate text-subhead text-label-secondary">
+                  {{ activity.desc }} <span class="text-primary">{{ activity.highlight }}</span>
+                </p>
+              </div>
+              <div class="flex-none text-right">
+                <p class="text-caption text-label-tertiary">{{ activity.time }}</p>
+                <p class="text-caption mt-0.5 font-medium text-label-secondary">
+                  {{ activity.size }}
+                </p>
+              </div>
+            </div>
+            <div v-if="index < recentActivities.length - 1" class="ml-17 h-px bg-hairline" />
+          </template>
+        </template>
       </div>
     </main>
   </div>

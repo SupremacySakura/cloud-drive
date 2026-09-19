@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { AnimatePresence, Motion } from 'motion-v'
+import { fadeTransition, springSnappy } from '../../utils/motion'
 
 const props = withDefaults(
   defineProps<{
@@ -55,52 +57,56 @@ watch(
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="modelValue"
-      role="dialog"
-      aria-modal="true"
-      :aria-labelledby="'dialog-title-' + title"
-      class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      @click="handleClose"
-    >
-      <div
-        class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-md p-6"
-        @click.stop
+    <!-- 遮罩淡入淡出；loading 期间点击遮罩不关闭；弹簧由 motion-v 驱动（第 8 步） -->
+    <AnimatePresence>
+      <Motion
+        v-if="modelValue"
+        key="confirm-overlay"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1 }"
+        :exit="{ opacity: 0 }"
+        :transition="fadeTransition"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="'dialog-title-' + title"
+        @click="handleClose"
       >
-        <h3
-          :id="'dialog-title-' + title"
-          class="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2"
+        <!-- 面板：scale 0.96→1 + 淡入（DESIGN.md §5.3） -->
+        <Motion
+          :initial="{ opacity: 0, scale: 0.96 }"
+          :animate="{ opacity: 1, scale: 1 }"
+          :exit="{ opacity: 0, scale: 0.98 }"
+          :transition="springSnappy"
+          class="w-full max-w-md rounded-lg bg-surface p-6 shadow-popover"
+          @click.stop
         >
-          {{ title }}
-        </h3>
-        <p v-if="message" class="text-sm text-slate-600 dark:text-slate-300 mb-5">{{ message }}</p>
+          <h3 :id="'dialog-title-' + title" class="text-title-3 mb-2">{{ title }}</h3>
+          <p v-if="message" class="text-body mb-6 text-label-secondary">{{ message }}</p>
 
-        <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button
-            class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed focus:ring-2 focus:ring-slate-400 focus:outline-none"
-            type="button"
-            :disabled="loading"
-            @click="handleClose"
-          >
-            {{ cancelText }}
-          </button>
-          <button
-            ref="confirmButtonRef"
-            class="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed focus:ring-2 focus:outline-none"
-            :class="
-              danger
-                ? 'bg-red-500 hover:bg-red-600 focus:ring-red-400'
-                : 'bg-primary hover:bg-primary/90 focus:ring-primary/50'
-            "
-            type="button"
-            :disabled="loading"
-            @click="handleConfirm"
-          >
-            <slot name="confirm-icon" />
-            {{ loading ? '处理中...' : confirmText }}
-          </button>
-        </div>
-      </div>
-    </div>
+          <div class="flex justify-end gap-3">
+            <button
+              type="button"
+              :disabled="loading"
+              class="h-10 rounded-full bg-surface px-5 text-sm font-semibold text-label-secondary ring-1 ring-hairline transition-[background-color,scale] duration-150 hover:bg-surface-secondary active:scale-[0.97] disabled:opacity-60"
+              @click="handleClose"
+            >
+              {{ cancelText }}
+            </button>
+            <button
+              ref="confirmButtonRef"
+              type="button"
+              :disabled="loading"
+              class="flex h-10 items-center gap-2 rounded-full px-5 text-sm font-semibold text-white transition-[background-color,scale] duration-150 active:scale-[0.97] disabled:opacity-60"
+              :class="danger ? 'bg-danger hover:bg-danger/90' : 'bg-primary hover:bg-primary-hover'"
+              @click="handleConfirm"
+            >
+              <slot name="confirm-icon" />
+              {{ loading ? '处理中...' : confirmText }}
+            </button>
+          </div>
+        </Motion>
+      </Motion>
+    </AnimatePresence>
   </Teleport>
 </template>

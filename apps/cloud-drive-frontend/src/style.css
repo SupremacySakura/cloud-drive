@@ -1,2 +1,155 @@
 @import 'tailwindcss';
-@config "../tailwind.config.js";
+
+/* 暗色模式：class 方案（原 tailwind.config.js 的 darkMode: 'class'） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ============================================================
+   设计令牌 — 唯一权威来源：仓库根目录 DESIGN.md §2
+   Tailwind v4 CSS-first @theme；新代码一律使用以下令牌，
+   禁止新增硬编码色值/魔法数字。
+   ============================================================ */
+@theme {
+  /* —— 颜色：表面 —— */
+  --color-canvas: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f2f2f7;
+  --color-surface-tertiary: #eaeaef;
+  --color-material: rgb(255 255 255 / 0.72);
+  --color-material-thick: rgb(255 255 255 / 0.85);
+  --color-hairline: rgb(0 0 0 / 0.08);
+  --color-scrim: rgb(0 0 0 / 0.4);
+
+  /* —— 颜色：文本 —— */
+  --color-label: rgb(60 60 67);
+  --color-label-secondary: rgb(60 60 67 / 0.6);
+  --color-label-tertiary: rgb(60 60 67 / 0.33);
+
+  /* —— 颜色：品牌与语义 —— */
+  --color-primary: #10b674;
+  --color-primary-hover: #0da267;
+  --color-primary-pressed: #0b8f5b;
+  --color-primary-tint: rgb(16 182 116 / 0.12);
+  --color-danger: #ff3b30;
+  --color-danger-tint: rgb(255 59 48 / 0.1);
+  --color-warning: #ff9500;
+  --color-warning-tint: rgb(255 149 0 / 0.12);
+  --color-info: #007aff;
+  --color-info-tint: rgb(0 122 255 / 0.1);
+
+  /* —— 文件类型图标色（DESIGN.md §5.3 分色 tint 底 + 同色系字形）—— */
+  --color-purple: #5856d6;
+  --color-purple-tint: rgb(88 86 214 / 0.12);
+  --color-pink: #ff3757;
+  --color-pink-tint: rgb(255 55 95 / 0.1);
+  --color-teal: #0a9fce;
+  --color-teal-tint: rgb(90 200 250 / 0.16);
+
+  /* —— 旧令牌（源自 tailwind.config.js），为兼容存量页面暂时保留 ——
+     新代码禁止使用，逐步替换为上方语义令牌，见 DESIGN.md §7 路线图 */
+  --color-background-light: #f6f8f7; /* deprecated → --color-canvas */
+  --color-background-dark: #10221b; /* deprecated → 暗色令牌后续单独定义 */
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif; /* deprecated → --font-sans */
+
+  /* —— 字体 —— */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+
+  /* —— 字级：字号 + 行高 + 字重 + 字距一体化工具类（DESIGN.md §2.2）——
+     用法示例：<h1 class="text-display">、<p class="text-subhead"> */
+  --text-display: 34px;
+  --text-display--line-height: 40px;
+  --text-display--font-weight: 700;
+  --text-display--letter-spacing: -0.02em;
+  --text-title-1: 28px;
+  --text-title-1--line-height: 34px;
+  --text-title-1--font-weight: 700;
+  --text-title-1--letter-spacing: -0.02em;
+  --text-title-2: 22px;
+  --text-title-2--line-height: 28px;
+  --text-title-2--font-weight: 700;
+  --text-title-2--letter-spacing: -0.01em;
+  --text-title-3: 20px;
+  --text-title-3--line-height: 25px;
+  --text-title-3--font-weight: 600;
+  --text-title-3--letter-spacing: -0.01em;
+  --text-headline: 17px;
+  --text-headline--line-height: 24px;
+  --text-headline--font-weight: 600;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-body--font-weight: 400;
+  --text-subhead: 14px;
+  --text-subhead--line-height: 20px;
+  --text-subhead--font-weight: 400;
+  --text-subhead--letter-spacing: 0.01em;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-caption--font-weight: 400;
+  --text-caption--letter-spacing: 0.02em;
+
+  /* —— 圆角（DESIGN.md §2.3；覆盖 v4 默认尺度，存量 rounded-* 类随之变大）—— */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* —— 阴影（柔和双层，随表面增大而加深）—— */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px rgb(0 0 0 / 0.06);
+  --shadow-popover: 0 2px 8px rgb(0 0 0 / 0.06), 0 12px 32px rgb(0 0 0 / 0.12);
+  --shadow-floating: 0 4px 24px rgb(0 0 0 / 0.1);
+
+  /* —— 动效（DESIGN.md §2.4；--ease-* 覆盖 v4 默认曲线）—— */
+  --duration-micro: 140ms;
+  --duration-standard: 240ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* —— 层级（DESIGN.md §3；供自定义 CSS 引用）—— */
+  --z-sticky: 20;
+  --z-panel: 30;
+  --z-menu: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-label);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--color-primary-tint);
+  }
+
+  /* 键盘导航 focus 环：品牌绿 70% 透明（DESIGN.md §6 可访问性） */
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+/* ============================================================
+   减弱动态效果（DESIGN.md §6）
+   - JS 弹簧动画由 App.vue 的 <MotionConfig reduced-motion="user"> 全局降级；
+   - 此处兜底所有 CSS transition / keyframes 动画。
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

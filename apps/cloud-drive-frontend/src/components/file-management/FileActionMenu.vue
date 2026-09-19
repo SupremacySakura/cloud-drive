@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 import { Icon } from '@iconify/vue'
+import { AnimatePresence, Motion } from 'motion-v'
+import { springSnappy } from '../../utils/motion'
 import type { FileDisplayItem } from '../../types/file'
 
 const props = withDefaults(
@@ -26,7 +28,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const menuRef = ref<HTMLElement | null>(null)
+const menuRef = ref<{ $el?: HTMLElement } | HTMLElement | null>(null)
 const isOpen = computed(() => props.visible && props.target !== null && props.position !== null)
 const menuStyle = computed<CSSProperties>(() => ({
   top: `${props.position?.top ?? 0}px`,
@@ -38,83 +40,101 @@ const handleKeydown = (event: KeyboardEvent) => {
   if (props.visible && event.key === 'Escape') emit('close')
 }
 
+const focusMenu = () => {
+  const el = (menuRef.value as { $el?: HTMLElement } | null)?.$el ?? (menuRef.value as HTMLElement)
+  el?.focus()
+}
+
 watch(isOpen, async open => {
   if (!open) return
   await nextTick()
-  menuRef.value?.focus()
+  focusMenu()
 })
 
 onMounted(() => document.addEventListener('keydown', handleKeydown))
 onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown))
+
+const itemClass =
+  'flex h-10 w-full items-center gap-2.5 rounded-sm px-3 text-left text-[15px] text-label transition-colors duration-150 hover:bg-surface-secondary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50'
 </script>
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="isOpen"
-      ref="menuRef"
-      class="fixed z-50 w-48 rounded-xl border border-slate-200 bg-white py-2 shadow-xl outline-none dark:border-slate-800 dark:bg-slate-950"
-      :style="menuStyle"
-      role="menu"
-      tabindex="-1"
-      :aria-label="`${target?.name ?? '文件'} 操作菜单`"
-      @click.stop
-    >
-      <button
-        class="flex w-full items-center gap-3 px-4 py-2 text-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-slate-900"
-        :class="previewDisabled ? 'text-slate-400' : 'text-slate-700 dark:text-slate-300'"
-        type="button"
-        role="menuitem"
-        aria-label="预览文件"
-        :disabled="previewDisabled"
-        @click="emit('preview')"
+    <!--
+      从触发源 scale 0.95→1 + 淡入（transform-origin 锚定按钮，motion-v 弹簧；
+      位置与翻转由 useFileActionMenu 计算）。
+    -->
+    <AnimatePresence>
+      <Motion
+        v-if="isOpen"
+        key="file-action-menu"
+        ref="menuRef"
+        :initial="{ opacity: 0, scale: 0.95 }"
+        :animate="{ opacity: 1, scale: 1 }"
+        :exit="{ opacity: 0, scale: 0.95 }"
+        :transition="springSnappy"
+        class="fixed z-50 w-52 origin-top-right rounded-md bg-surface p-1.5 shadow-popover outline-none"
+        :style="menuStyle"
+        role="menu"
+        tabindex="-1"
+        :aria-label="`${target?.name ?? '文件'} 操作菜单`"
+        @click.stop
       >
-        <Icon class="text-sm" icon="material-symbols:visibility" />
-        预览
-      </button>
-      <button
-        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-900"
-        type="button"
-        role="menuitem"
-        aria-label="下载文件"
-        :disabled="downloading"
-        @click="emit('download')"
-      >
-        <Icon class="text-sm" icon="material-symbols:download" />
-        下载
-      </button>
-      <button
-        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:text-slate-300 dark:hover:bg-slate-900"
-        type="button"
-        role="menuitem"
-        aria-label="重命名文件"
-        @click="emit('rename')"
-      >
-        <Icon class="text-sm" icon="material-symbols:edit" />
-        重命名
-      </button>
-      <button
-        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:text-slate-300 dark:hover:bg-slate-900"
-        type="button"
-        role="menuitem"
-        aria-label="移动文件"
-        @click="emit('move')"
-      >
-        <Icon class="text-sm" icon="material-symbols:drive-file-move" />
-        移动到
-      </button>
-      <div class="my-1 border-t border-slate-100 dark:border-slate-800"></div>
-      <button
-        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/20"
-        type="button"
-        role="menuitem"
-        aria-label="删除文件"
-        :disabled="deleting"
-        @click="emit('delete')"
-      >
-        <Icon class="text-sm" icon="material-symbols:delete" />
-        删除
-      </button>
-    </div>
+        <button
+          :class="[itemClass, previewDisabled ? 'text-label-tertiary' : '']"
+          type="button"
+          role="menuitem"
+          aria-label="预览文件"
+          :disabled="previewDisabled"
+          @click="emit('preview')"
+        >
+          <Icon class="text-[18px] text-label-secondary" icon="material-symbols:visibility" />
+          预览
+        </button>
+        <button
+          :class="itemClass"
+          type="button"
+          role="menuitem"
+          aria-label="下载文件"
+          :disabled="downloading"
+          @click="emit('download')"
+        >
+          <Icon class="text-[18px] text-label-secondary" icon="material-symbols:download" />
+          下载
+        </button>
+        <button
+          :class="itemClass"
+          type="button"
+          role="menuitem"
+          aria-label="重命名文件"
+          @click="emit('rename')"
+        >
+          <Icon class="text-[18px] text-label-secondary" icon="material-symbols:edit" />
+          重命名
+        </button>
+        <button
+          :class="itemClass"
+          type="button"
+          role="menuitem"
+          aria-label="移动文件"
+          @click="emit('move')"
+        >
+          <Icon class="text-[18px] text-label-secondary" icon="material-symbols:drive-file-move" />
+          移动到
+        </button>
+        <div class="mx-2.5 my-1 h-px bg-hairline"></div>
+        <button
+          :class="[itemClass, 'text-danger hover:bg-danger-tint disabled:hover:bg-transparent']"
+          type="button"
+          role="menuitem"
+          aria-label="删除文件"
+          :disabled="deleting"
+          @click="emit('delete')"
+        >
+          <Icon icon="material-symbols:delete" />
+          删除
+        </button>
+      </Motion>
+    </AnimatePresence>
   </Teleport>
 </template>

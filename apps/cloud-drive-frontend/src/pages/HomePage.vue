@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
+import { AnimatePresence, Motion, animate, type PanInfo } from 'motion-v'
+import { springBouncy, springSnappy, fadeTransition } from '../utils/motion'
 import { useRoute } from 'vue-router'
 import SideBar, { type NavItem } from '../components/bussiness/SideBar.vue'
 
@@ -27,14 +29,34 @@ watch(
     isMobileMenuOpen.value = false
   },
 )
+
+// 抽屉拖拽关闭（DESIGN.md §2.4 手势：速度方向优先，动量投影辅助判断）
+const panelEl = ref<HTMLElement | null>(null)
+const setPanelRef = (instance: unknown) => {
+  panelEl.value =
+    (instance as { $el?: HTMLElement } | null)?.$el ?? (instance as HTMLElement) ?? null
+}
+
+const handleDrawerPanEnd = (_event: unknown, info: PanInfo) => {
+  const shouldClose = info.velocity.x < -400 || (info.velocity.x <= 0 && info.offset.x < -80)
+  if (shouldClose) {
+    // AnimatePresence 退场：从当前拖拽位置连续滑出（x → -100%）
+    isMobileMenuOpen.value = false
+    return
+  }
+  if (panelEl.value) {
+    // 未达关闭阈值：以弹簧弹回原位（可打断）
+    animate(panelEl.value, { x: 0 }, springSnappy)
+  }
+}
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-background-light dark:bg-background-dark lg:h-screen">
+  <div class="flex min-h-screen lg:h-screen">
     <!-- Skip to content link for accessibility -->
     <a
       href="#main-content"
-      class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded-lg focus:font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:font-medium focus:text-white"
     >
       跳转到主要内容
     </a>
@@ -43,54 +65,62 @@ watch(
     </div>
 
     <div class="flex min-h-screen min-w-0 flex-1 flex-col lg:min-h-0">
+      <!-- 移动端顶栏：sticky + 半透明材质（DESIGN.md §3） -->
       <header
-        class="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 lg:hidden"
+        class="material sticky top-0 z-20 flex h-[60px] items-center justify-between border-b border-hairline px-4 backdrop-blur-[20px] backdrop-saturate-[180%] lg:hidden"
       >
         <div class="min-w-0">
-          <p class="text-base font-bold text-slate-900 dark:text-slate-100">云盘</p>
-          <p class="truncate text-xs text-slate-500 dark:text-slate-400">{{ currentNavLabel }}</p>
+          <p class="text-[16px] font-bold tracking-[-0.01em] text-label">云盘</p>
+          <p class="truncate text-caption text-label-secondary">{{ currentNavLabel }}</p>
         </div>
         <button
-          class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900"
+          class="flex h-10 w-10 flex-none items-center justify-center rounded-sm border border-hairline bg-surface text-label transition-[transform,background-color] duration-150 hover:bg-surface-secondary active:scale-[0.92]"
           type="button"
           aria-label="打开导航菜单"
           @click="isMobileMenuOpen = true"
         >
-          <Icon icon="material-symbols:menu-rounded" class="text-2xl" />
+          <Icon icon="material-symbols:menu-rounded" class="text-[20px]" />
         </button>
       </header>
 
       <router-view id="main-content" class="min-h-0 min-w-0 flex-1" tabindex="-1" />
     </div>
 
-    <Transition
-      enter-active-class="transition duration-200 ease-out"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition duration-150 ease-in"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
-      <div
+    <!-- 导航抽屉：面板弹簧滑入（damping ≈ 0.8 轻微回弹），可拖拽左滑关闭 -->
+    <AnimatePresence>
+      <Motion
         v-if="isMobileMenuOpen"
-        class="fixed inset-0 z-50 flex lg:hidden"
+        key="mobile-drawer-layer"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1 }"
+        :exit="{ opacity: 0 }"
+        :transition="fadeTransition"
+        class="fixed inset-0 z-40 flex lg:hidden"
         @click="isMobileMenuOpen = false"
       >
-        <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"></div>
-        <div
-          class="relative flex h-full w-[min(18rem,86vw)] flex-col bg-white shadow-2xl dark:bg-slate-950"
+        <div class="absolute inset-0 bg-scrim backdrop-blur-[6px]"></div>
+        <Motion
+          :ref="setPanelRef"
+          :initial="{ x: '-100%' }"
+          :animate="{ x: 0 }"
+          :exit="{ x: '-100%' }"
+          :transition="springBouncy"
+          drag="x"
+          :drag-constraints="{ left: -320, right: 0 }"
+          :drag-elastic="{ left: 0.2, right: 0 }"
+          :drag-momentum="false"
+          class="relative flex h-full w-[min(18rem,86vw)] flex-col bg-surface shadow-popover"
           @click.stop
+          @pan-end="handleDrawerPanEnd"
         >
-          <div
-            class="flex items-center justify-end border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950"
-          >
+          <div class="flex flex-none items-center justify-end border-b border-hairline px-3 py-2.5">
             <button
-              class="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:hover:bg-slate-900 dark:hover:text-slate-200"
+              class="flex h-10 w-10 items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-secondary hover:text-label"
               type="button"
               aria-label="关闭导航菜单"
               @click="isMobileMenuOpen = false"
             >
-              <Icon icon="material-symbols:close-rounded" class="text-2xl" />
+              <Icon icon="material-symbols:close-rounded" class="text-[20px]" />
             </button>
           </div>
           <div class="min-h-0 flex-1">
@@ -101,10 +131,8 @@ watch(
               :compact="true"
             />
           </div>
-        </div>
-      </div>
-    </Transition>
+        </Motion>
+      </Motion>
+    </AnimatePresence>
   </div>
 </template>
-
-<style lang="sass" scoped></style>

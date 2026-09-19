@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
+import { AnimatePresence, Motion } from 'motion-v'
+import { fadeTransition, springSnappy } from '../utils/motion'
 import { getPickupCodeList, getPickupCodeCount, deletePickupCode } from '../services/apis/file'
 import type { PickupCodeItem, PickupCodeType } from '../services/types/file'
 import CreatePickupCodeModal from '../components/bussiness/CreatePickupCodeModal.vue'
@@ -247,194 +249,198 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100"
-  >
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <div class="flex-1 overflow-y-auto space-y-6 p-4 sm:p-6 lg:space-y-8 lg:p-10">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+  <div class="flex min-w-0 flex-1 flex-col bg-canvas text-label">
+    <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div class="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6 lg:space-y-8 lg:p-8">
+        <!-- 页头 -->
+        <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div class="space-y-1">
-            <h2 class="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-              取件码管理
-            </h2>
-            <p class="text-slate-500 text-sm">创建、监控并撤销安全的文件提取码。</p>
+            <h2 class="text-title-1">取件码管理</h2>
+            <p class="text-subhead text-label-secondary">创建、监控并撤销安全的文件提取码。</p>
           </div>
           <div class="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <button
-              class="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-primary/30 px-4 font-bold text-primary transition-all hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-primary/30 sm:w-auto sm:px-6"
+              class="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-surface px-5 text-sm font-semibold text-label-secondary ring-1 ring-hairline transition-[background-color,scale] duration-150 hover:bg-surface-secondary active:scale-[0.97] sm:w-auto"
               type="button"
               aria-label="去取件页面"
               @click="goToFilePickup"
             >
-              <Icon icon="material-symbols:download-rounded" class="text-xl" aria-hidden="true" />
+              <Icon
+                icon="material-symbols:download-rounded"
+                class="text-[18px]"
+                aria-hidden="true"
+              />
               <span>去取件</span>
             </button>
             <button
-              class="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto sm:px-6"
+              class="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed sm:w-auto"
               type="button"
               aria-label="创建新取件码"
               @click="openCreateModal"
             >
-              <Icon icon="material-symbols:add-rounded" class="text-xl" aria-hidden="true" />
+              <Icon icon="material-symbols:add-rounded" class="text-[18px]" aria-hidden="true" />
               <span>创建新取件码</span>
             </button>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div
-            class="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm"
-          >
-            <div class="flex items-center justify-between mb-4">
-              <span class="text-slate-500 text-sm font-medium uppercase tracking-wider"
+        <!-- 统计卡 -->
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-3">
+          <div class="flex flex-col gap-3.5 rounded-md bg-surface p-5 shadow-card">
+            <div class="flex items-center justify-between">
+              <span
+                class="text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                 >活跃取件码</span
               >
-              <div class="bg-primary/10 p-2 rounded-lg text-primary">
-                <Icon icon="material-symbols:lock-open-outline-rounded" class="text-xl" />
-              </div>
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-sm bg-primary-tint text-primary"
+              >
+                <Icon icon="material-symbols:lock-open-outline-rounded" class="text-[18px]" />
+              </span>
             </div>
             <div class="flex items-baseline gap-2">
-              <p class="text-3xl font-black text-slate-900 dark:text-white">
-                {{ stats.activeCount }}
-              </p>
-              <span class="text-primary text-xs font-bold bg-primary/10 px-2 py-0.5 rounded-full"
+              <p class="text-title-1 text-label">{{ stats.activeCount }}</p>
+              <span
+                class="rounded-full bg-primary-tint px-2.5 py-0.5 text-caption font-semibold text-primary"
                 >↑ 12%</span
               >
             </div>
           </div>
 
-          <div
-            class="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm"
-          >
-            <div class="flex items-center justify-between mb-4">
-              <span class="text-slate-500 text-sm font-medium uppercase tracking-wider"
+          <div class="flex flex-col gap-3.5 rounded-md bg-surface p-5 shadow-card">
+            <div class="flex items-center justify-between">
+              <span
+                class="text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                 >总下载量</span
               >
-              <div class="bg-blue-500/10 p-2 rounded-lg text-blue-500">
-                <Icon icon="material-symbols:download-rounded" class="text-xl" />
-              </div>
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-sm bg-info-tint text-info"
+              >
+                <Icon icon="material-symbols:download-rounded" class="text-[18px]" />
+              </span>
             </div>
             <div class="flex items-baseline gap-2">
-              <p class="text-3xl font-black text-slate-900 dark:text-white">
-                {{ stats.totalDownloads.toLocaleString() }}
-              </p>
-              <span class="text-blue-500 text-xs font-bold bg-blue-500/10 px-2 py-0.5 rounded-full"
+              <p class="text-title-1 text-label">{{ stats.totalDownloads.toLocaleString() }}</p>
+              <span
+                class="rounded-full bg-info-tint px-2.5 py-0.5 text-caption font-semibold text-info"
                 >↑ 5%</span
               >
             </div>
           </div>
 
-          <div
-            class="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm"
-          >
-            <div class="flex items-center justify-between mb-4">
-              <span class="text-slate-500 text-sm font-medium uppercase tracking-wider"
+          <div class="flex flex-col gap-3.5 rounded-md bg-surface p-5 shadow-card">
+            <div class="flex items-center justify-between">
+              <span
+                class="text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                 >即将过期取件码</span
               >
-              <div class="bg-amber-500/10 p-2 rounded-lg text-amber-500">
-                <Icon icon="material-symbols:timer-outline-rounded" class="text-xl" />
-              </div>
+              <span
+                class="flex h-8 w-8 items-center justify-center rounded-sm bg-warning-tint text-warning"
+              >
+                <Icon icon="material-symbols:timer-outline-rounded" class="text-[18px]" />
+              </span>
             </div>
             <div class="flex items-baseline gap-2">
-              <p class="text-3xl font-black text-slate-900 dark:text-white">
-                {{ stats.expiringSoon }}
-              </p>
+              <p class="text-title-1 text-label">{{ stats.expiringSoon }}</p>
               <span
-                class="text-slate-400 text-xs font-medium border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-full"
+                class="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-caption font-medium text-label-secondary"
                 >Next 7 days</span
               >
             </div>
           </div>
         </div>
 
-        <div
-          class="bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
-        >
+        <!-- 取件码仓库表 -->
+        <div class="overflow-hidden rounded-md bg-surface shadow-card">
           <div
-            class="flex flex-col gap-3 border-b border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            class="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3.5 sm:px-5"
           >
-            <h3 class="font-bold text-slate-900 dark:text-white">活跃取件码仓库</h3>
-            <div class="flex items-center gap-2">
+            <h3 class="text-headline text-label">活跃取件码仓库</h3>
+            <div class="flex items-center gap-1">
               <button
-                class="p-2 text-slate-500 hover:text-primary transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
+                class="flex h-9 w-9 items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-tertiary hover:text-label"
                 type="button"
                 aria-label="筛选"
               >
                 <Icon
                   icon="material-symbols:filter-list-rounded"
-                  class="text-xl"
+                  class="text-[20px]"
                   aria-hidden="true"
                 />
               </button>
               <button
-                class="p-2 text-slate-500 hover:text-primary transition-colors focus:ring-2 focus:ring-primary/30 focus:outline-none rounded"
+                class="flex h-9 w-9 items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-tertiary hover:text-label"
                 type="button"
                 aria-label="排序"
               >
-                <Icon icon="material-symbols:sort-rounded" class="text-xl" aria-hidden="true" />
+                <Icon icon="material-symbols:sort-rounded" class="text-[20px]" aria-hidden="true" />
               </button>
             </div>
           </div>
 
           <div class="overflow-x-auto">
-            <table class="min-w-[760px] w-full text-left border-collapse">
-              <thead
-                class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800"
-              >
+            <table class="w-full min-w-[820px] border-collapse text-left">
+              <thead>
                 <tr>
                   <th
                     scope="col"
-                    class="py-4 px-6 text-xs font-bold uppercase tracking-wider text-slate-500"
+                    class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
                     Pickup Code
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                    class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
                     Associated File
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden sm:table-cell"
+                    class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary sm:table-cell"
                   >
                     Usage Progress
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden md:table-cell"
+                    class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary md:table-cell"
                   >
                     Downloads
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500 hidden lg:table-cell"
+                    class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary lg:table-cell"
                   >
                     Expiration
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-4 text-xs font-bold uppercase tracking-wider text-slate-500"
+                    class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
                     Status
                   </th>
                   <th
                     scope="col"
-                    class="py-4 px-6 text-right text-xs font-bold uppercase tracking-wider text-slate-500"
+                    class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-right text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
                     Actions
                   </th>
                 </tr>
               </thead>
 
-              <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
-                <tr v-if="loading" class="opacity-60">
-                  <td colspan="7" class="p-10 text-center text-slate-500 dark:text-slate-400">
-                    Loading...
+              <tbody>
+                <tr v-if="loading">
+                  <td colspan="7" class="px-6 py-10">
+                    <div class="flex flex-col items-center justify-center gap-2.5">
+                      <Icon
+                        icon="material-symbols:progress-activity"
+                        class="animate-spin text-[24px] text-primary"
+                      />
+                      <p class="text-subhead text-label-tertiary">Loading...</p>
+                    </div>
                   </td>
                 </tr>
-                <tr v-else-if="pickupList.length === 0" class="opacity-60">
-                  <td colspan="7" class="p-10 text-center text-slate-500 dark:text-slate-400">
+                <tr v-else-if="pickupList.length === 0">
+                  <td colspan="7" class="px-6 py-10 text-center text-subhead text-label-tertiary">
                     No pickup codes found. Create your first one!
                   </td>
                 </tr>
@@ -442,74 +448,70 @@ onBeforeUnmount(() => {
                   v-else
                   v-for="item in pickupList"
                   :key="item.code"
-                  class="group hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors"
+                  class="border-b border-hairline transition-colors duration-150 last:border-b-0 hover:bg-surface-secondary"
                 >
-                  <td class="py-4 px-6">
+                  <td class="px-4 py-3.5">
                     <div
-                      class="font-mono text-lg font-bold text-slate-900 dark:text-white tracking-widest bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg inline-block border border-slate-200 dark:border-slate-700"
+                      class="inline-block rounded-sm border border-hairline bg-surface-secondary px-2.5 py-1 font-mono text-[15px] font-bold tracking-[0.14em] text-label"
                     >
                       {{ item.code }}
                     </div>
                   </td>
-                  <td class="py-4 px-4">
-                    <div class="flex items-center gap-3">
-                      <div
-                        class="w-10 h-10 rounded flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-500"
+                  <td class="px-4 py-3.5">
+                    <div class="flex min-w-0 items-center gap-3">
+                      <span
+                        class="flex h-8 w-8 flex-none items-center justify-center rounded-sm"
+                        :class="
+                          item.type === 'folder'
+                            ? 'bg-primary-tint text-primary'
+                            : 'bg-warning-tint text-warning'
+                        "
                       >
-                        <Icon :icon="typeIcon(item.type)" class="text-xl" />
-                      </div>
-                      <div class="truncate max-w-[150px] md:max-w-xs">
-                        <p
-                          class="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate"
-                        >
+                        <Icon :icon="typeIcon(item.type)" class="text-[16px]" />
+                      </span>
+                      <div class="min-w-0">
+                        <p class="max-w-[180px] truncate text-[15px] font-semibold text-label">
                           {{ item.name }}
                         </p>
-                        <p class="text-xs text-slate-500 truncate">{{ item.type }}</p>
+                        <p class="truncate text-caption text-label-secondary">{{ item.type }}</p>
                       </div>
                     </div>
                   </td>
-                  <td class="py-4 px-4 hidden sm:table-cell">
-                    <div class="w-32">
+                  <td class="hidden px-4 py-3.5 sm:table-cell">
+                    <div class="h-1.5 w-32 overflow-hidden rounded-full bg-surface-tertiary">
                       <div
-                        class="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"
-                      >
-                        <div
-                          class="h-full"
-                          :class="item.status === 'Active' ? 'bg-primary' : 'bg-red-500'"
-                          :style="{ width: `${progressPercent(item)}%` }"
-                        ></div>
-                      </div>
+                        class="h-full rounded-full"
+                        :class="item.status === 'Active' ? 'bg-primary' : 'bg-danger'"
+                        :style="{ width: `${progressPercent(item)}%` }"
+                      ></div>
                     </div>
                   </td>
-                  <td class="py-4 px-4 text-sm text-slate-500 hidden md:table-cell">
+                  <td
+                    class="hidden whitespace-nowrap px-4 py-3.5 text-subhead text-label-secondary md:table-cell"
+                  >
                     {{ item.download }} / {{ item.max_download }}
                   </td>
                   <td
-                    class="py-4 px-4 text-sm text-slate-500 whitespace-nowrap hidden lg:table-cell"
+                    class="hidden whitespace-nowrap px-4 py-3.5 text-subhead text-label-secondary lg:table-cell"
                   >
                     {{ formatDate(item.expire_time) }}
                   </td>
-                  <td class="py-4 px-4">
+                  <td class="px-4 py-3.5">
                     <span
-                      class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
+                      class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold"
                       :class="
                         item.status === 'Active'
-                          ? 'bg-primary/10 text-primary border-primary/20'
-                          : 'bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
+                          ? 'bg-primary-tint text-primary'
+                          : 'bg-danger-tint text-danger'
                       "
                     >
-                      <span
-                        class="size-1.5 rounded-full mr-2"
-                        :class="
-                          item.status === 'Active' ? 'bg-primary' : 'bg-red-600 dark:bg-red-400'
-                        "
-                      ></span>
+                      <span class="size-1.5 rounded-full bg-current"></span>
                       {{ statusLabel(item.status) }}
                     </span>
                   </td>
-                  <td class="py-4 px-6 text-right" @click="onStopPropagation">
+                  <td class="px-4 py-3.5 text-right" @click="onStopPropagation">
                     <button
-                      class="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg group-hover:bg-white dark:group-hover:bg-slate-900"
+                      class="flex h-9 w-9 items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-tertiary hover:text-label"
                       type="button"
                       aria-label="取件码操作菜单"
                       @click="e => openPickupMenu(item, e)"
@@ -522,36 +524,35 @@ onBeforeUnmount(() => {
             </table>
           </div>
 
+          <!-- 分页条（FilePagination 视觉：32px 圆 pill，当前页 primary-tint） -->
           <div
-            class="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+            class="flex flex-col gap-3 border-t border-hairline px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
           >
-            <p class="text-xs text-slate-500">
+            <p class="text-caption text-label-secondary">
               Showing
-              <span class="font-bold text-slate-900 dark:text-slate-100"
-                >{{ startIndex }}-{{ endIndex }}</span
-              >
+              <span class="font-bold text-label">{{ startIndex }}-{{ endIndex }}</span>
               of
-              <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
+              <span class="font-bold text-label">{{ totalCount }}</span>
               items
             </p>
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-1">
               <button
-                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
+                class="flex h-8 min-w-8 items-center justify-center rounded-full px-1.5 text-[13px] font-semibold text-label-secondary transition-[background-color,color] duration-150 hover:bg-surface-secondary hover:text-label disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
                 type="button"
                 aria-label="上一页"
                 :disabled="currentPage <= 1 || loading"
                 @click="handlePageChange(currentPage - 1)"
               >
-                <Icon class="text-sm" icon="material-symbols:chevron-left" aria-hidden="true" />
+                <Icon class="text-[16px]" icon="material-symbols:chevron-left" aria-hidden="true" />
               </button>
               <button
                 v-for="p in pageNumbers"
                 :key="p"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium focus:ring-2 focus:ring-primary/30 focus:outline-none"
+                class="flex h-8 min-w-8 items-center justify-center rounded-full px-1.5 text-[13px] font-semibold transition-[background-color,color] duration-150 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
                 :class="
                   p === currentPage
-                    ? 'bg-primary text-white font-bold'
-                    : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-700 dark:text-slate-200'
+                    ? 'bg-primary-tint text-primary'
+                    : 'text-label-secondary hover:bg-surface-secondary hover:text-label'
                 "
                 type="button"
                 :aria-label="`第 ${p} 页`"
@@ -561,15 +562,19 @@ onBeforeUnmount(() => {
               >
                 {{ p }}
               </button>
-              <span v-if="totalPages > 3" class="text-slate-400 px-1">...</span>
+              <span v-if="totalPages > 3" class="px-1 text-[13px] text-label-tertiary">…</span>
               <button
-                class="p-1.5 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
+                class="flex h-8 min-w-8 items-center justify-center rounded-full px-1.5 text-[13px] font-semibold text-label-secondary transition-[background-color,color] duration-150 hover:bg-surface-secondary hover:text-label disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
                 type="button"
                 aria-label="下一页"
                 :disabled="currentPage >= totalPages || loading"
                 @click="handlePageChange(currentPage + 1)"
               >
-                <Icon class="text-sm" icon="material-symbols:chevron-right" aria-hidden="true" />
+                <Icon
+                  class="text-[16px]"
+                  icon="material-symbols:chevron-right"
+                  aria-hidden="true"
+                />
               </button>
             </div>
           </div>
@@ -577,113 +582,142 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <!-- Create Pickup Code Modal -->
+    <!-- 创建取件码弹窗（标准弹窗遮罩：scrim + blur；内容组件保持原样） -->
     <Teleport to="body">
-      <div
-        v-if="showCreateModal"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        @click.self="closeCreateModal"
-      >
-        <CreatePickupCodeModal @close="closeCreateModal" @success="handleCreateSuccess" />
-      </div>
+      <AnimatePresence>
+        <Motion
+          v-if="showCreateModal"
+          key="create-modal-overlay"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="fadeTransition"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-sm"
+          @click.self="closeCreateModal"
+        >
+          <!-- 面板 Motion 内联（与 ConfirmDialog 等弹窗同构；子组件保持纯内容） -->
+          <Motion
+            :initial="{ opacity: 0, scale: 0.96 }"
+            :animate="{ opacity: 1, scale: 1 }"
+            :exit="{ opacity: 0, scale: 0.98 }"
+            :transition="springSnappy"
+            class="mx-4 w-full max-w-[520px]"
+          >
+            <CreatePickupCodeModal @close="closeCreateModal" @success="handleCreateSuccess" />
+          </Motion>
+        </Motion>
+      </AnimatePresence>
     </Teleport>
 
-    <!-- Detail Modal -->
+    <!-- 详情弹窗（标准弹窗模式：遮罩淡入 + 面板弹簧 scale 0.96→1，motion-v） -->
     <Teleport to="body">
-      <div
-        v-if="showDetailModal && selectedItem"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        @click.self="handleCloseDetail"
-      >
-        <div
-          class="mx-4 w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900"
+      <AnimatePresence>
+        <Motion
+          v-if="showDetailModal && selectedItem"
+          key="detail-modal-overlay"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="fadeTransition"
+          class="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          @click.self="handleCloseDetail"
         >
-          <div
-            class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:px-6"
+          <Motion
+            :initial="{ opacity: 0, scale: 0.96 }"
+            :animate="{ opacity: 1, scale: 1 }"
+            :exit="{ opacity: 0, scale: 0.98 }"
+            :transition="springSnappy"
+            class="w-full max-w-md overflow-hidden rounded-lg bg-surface shadow-popover"
           >
-            <h3 class="text-lg font-bold text-slate-900 dark:text-white">Pickup Code Details</h3>
-            <button
-              class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none rounded"
-              type="button"
-              aria-label="关闭详情"
-              @click="handleCloseDetail"
-            >
-              <Icon icon="material-symbols:close-rounded" class="text-xl" aria-hidden="true" />
-            </button>
-          </div>
-
-          <div class="space-y-4 p-4 sm:p-6">
-            <div class="flex items-center justify-center">
-              <div
-                class="rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 font-mono text-xl font-bold tracking-[0.3em] text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white sm:px-6 sm:text-2xl"
+            <div class="flex items-center justify-between border-b border-hairline px-5 py-4">
+              <h3 class="text-title-3">取件码详情</h3>
+              <button
+                class="flex h-9 w-9 items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-tertiary hover:text-label"
+                type="button"
+                aria-label="关闭详情"
+                @click="handleCloseDetail"
               >
-                {{ selectedItem.code }}
+                <Icon
+                  icon="material-symbols:close-rounded"
+                  class="text-[20px]"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+
+            <div class="space-y-5 p-5">
+              <div class="flex justify-center">
+                <div
+                  class="rounded-sm border border-hairline bg-surface-secondary px-5 py-3 font-mono text-[20px] font-bold tracking-[0.3em] text-label"
+                >
+                  {{ selectedItem.code }}
+                </div>
+              </div>
+
+              <div class="space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-subhead text-label-secondary">File Name</span>
+                  <span class="truncate text-[15px] font-medium text-label">{{
+                    selectedItem.name
+                  }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-subhead text-label-secondary">Type</span>
+                  <span class="text-[15px] font-medium text-label">{{ selectedItem.type }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-subhead text-label-secondary">Downloads</span>
+                  <span class="text-[15px] font-medium text-label"
+                    >{{ selectedItem.download }} / {{ selectedItem.max_download }}</span
+                  >
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-subhead text-label-secondary">Expiration</span>
+                  <span class="text-[15px] font-medium text-label">{{
+                    formatDate(selectedItem.expire_time)
+                  }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-subhead text-label-secondary">Status</span>
+                  <span
+                    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold"
+                    :class="
+                      selectedItem.status === 'Active'
+                        ? 'bg-primary-tint text-primary'
+                        : 'bg-danger-tint text-danger'
+                    "
+                  >
+                    <span class="size-1.5 rounded-full bg-current"></span>
+                    {{ selectedItem.status === 'Active' ? 'Active' : 'Expired' }}
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div class="space-y-3">
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <span class="text-slate-500">File Name</span>
-                <span class="font-medium text-slate-900 dark:text-white">{{
-                  selectedItem.name
-                }}</span>
-              </div>
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <span class="text-slate-500">Type</span>
-                <span class="font-medium text-slate-900 dark:text-white">{{
-                  selectedItem.type
-                }}</span>
-              </div>
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <span class="text-slate-500">Downloads</span>
-                <span class="font-medium text-slate-900 dark:text-white"
-                  >{{ selectedItem.download }} / {{ selectedItem.max_download }}</span
-                >
-              </div>
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <span class="text-slate-500">Expiration</span>
-                <span class="font-medium text-slate-900 dark:text-white">{{
-                  formatDate(selectedItem.expire_time)
-                }}</span>
-              </div>
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                <span class="text-slate-500">Status</span>
-                <span
-                  class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border"
-                  :class="
-                    selectedItem.status === 'Active'
-                      ? 'bg-primary/10 text-primary border-primary/20'
-                      : 'bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
-                  "
-                >
-                  {{ selectedItem.status === 'Active' ? 'Active' : 'Expired' }}
-                </span>
-              </div>
+            <div class="flex justify-end gap-3 border-t border-hairline px-5 py-4">
+              <button
+                type="button"
+                class="h-10 rounded-full bg-surface px-5 text-sm font-semibold text-label-secondary ring-1 ring-hairline transition-[background-color,scale] duration-150 hover:bg-surface-secondary active:scale-[0.97]"
+                aria-label="关闭详情"
+                @click="handleCloseDetail"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                class="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed"
+                aria-label="复制取件码"
+                @click="handleCopyCode(selectedItem.code)"
+              >
+                <Icon class="text-[16px]" icon="material-symbols:content-copy" aria-hidden="true" />
+                Copy Code
+              </button>
             </div>
-          </div>
-
-          <div
-            class="flex flex-col-reverse gap-3 border-t border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:justify-end sm:px-6"
-          >
-            <button
-              type="button"
-              class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:ring-2 focus:ring-slate-400 focus:outline-none"
-              aria-label="关闭详情"
-              @click="handleCloseDetail"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              class="px-6 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors focus:ring-2 focus:ring-primary/50 focus:outline-none"
-              aria-label="复制取件码"
-              @click="handleCopyCode(selectedItem.code)"
-            >
-              Copy Code
-            </button>
-          </div>
-        </div>
-      </div>
+          </Motion>
+        </Motion>
+      </AnimatePresence>
     </Teleport>
 
     <ConfirmDialog
@@ -706,93 +740,94 @@ onBeforeUnmount(() => {
       </template>
     </ConfirmDialog>
 
-    <transition
-      enter-active-class="transform ease-out duration-300 transition"
-      enter-from-class="translate-y-2 opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition ease-in duration-200"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
-      <div
+    <!-- Toast（顶部居中胶囊，material-thick；非阻塞不加遮罩；motion-v 弹簧） -->
+    <AnimatePresence>
+      <Motion
         v-if="showToast"
-        class="fixed left-4 right-4 top-4 z-50 flex items-center gap-3 rounded-xl border px-4 py-4 shadow-2xl sm:left-auto sm:right-4 sm:px-6"
-        :class="{
-          'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800':
-            toastType === 'success',
-          'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800': toastType === 'error',
-          'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800':
-            toastType === 'info',
-        }"
+        key="pickup-toast"
+        :initial="{ opacity: 0, y: -8 }"
+        :animate="{ opacity: 1, y: 0 }"
+        :exit="{ opacity: 0, y: -8 }"
+        :transition="springSnappy"
+        class="fixed left-1/2 top-4 z-[60] flex h-10 -translate-x-1/2 items-center gap-2 rounded-full bg-material-thick px-4 shadow-floating backdrop-blur-[20px] backdrop-saturate-[180%]"
       >
         <Icon
           v-if="toastType === 'success'"
           icon="material-symbols:check-circle"
-          class="text-2xl text-green-500"
+          class="text-[18px] text-primary"
         />
         <Icon
           v-else-if="toastType === 'error'"
           icon="material-symbols:error"
-          class="text-2xl text-red-500"
+          class="text-[18px] text-danger"
         />
-        <Icon v-else icon="material-symbols:info" class="text-2xl text-blue-500" />
-        <span
-          class="font-medium"
-          :class="{
-            'text-green-800 dark:text-green-200': toastType === 'success',
-            'text-red-800 dark:text-red-200': toastType === 'error',
-            'text-blue-800 dark:text-blue-200': toastType === 'info',
-          }"
-          >{{ toastMessage }}</span
-        >
-      </div>
-    </transition>
+        <Icon v-else icon="material-symbols:info" class="text-[18px] text-info" />
+        <span class="text-sm font-medium text-label">{{ toastMessage }}</span>
+      </Motion>
+    </AnimatePresence>
 
+    <!-- 行内操作菜单（FileActionMenu 模式：从触发源弹簧 scale 0.95→1，danger 置底） -->
     <Teleport to="body">
-      <div
-        v-if="openMenuId && menuPosition"
-        class="fixed w-48 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-50 py-2"
-        :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
-        @click="onStopPropagation"
-      >
-        <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
-          type="button"
-          aria-label="复制取件码"
-          @click="handleCopyCode(menuTargetItem?.code || '')"
+      <AnimatePresence>
+        <Motion
+          v-if="openMenuId && menuPosition"
+          key="pickup-row-menu"
+          :initial="{ opacity: 0, scale: 0.95 }"
+          :animate="{ opacity: 1, scale: 1 }"
+          :exit="{ opacity: 0, scale: 0.95 }"
+          :transition="springSnappy"
+          class="fixed z-50 w-48 origin-top-right rounded-md bg-surface p-1.5 shadow-popover"
+          :style="{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }"
+          @click="onStopPropagation"
         >
-          <Icon class="text-sm" icon="material-symbols:content-copy" aria-hidden="true" />
-          复制取件码
-        </button>
-        <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 focus:ring-2 focus:ring-primary/30 focus:outline-none"
-          type="button"
-          aria-label="查看取件码详情"
-          @click="handleViewDetailFromMenu"
-        >
-          <Icon class="text-sm" icon="material-symbols:visibility" aria-hidden="true" />
-          查看详情
-        </button>
-        <div class="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-        <button
-          class="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 focus:ring-2 focus:ring-red-400 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-          type="button"
-          aria-label="删除取件码"
-          :disabled="deletingCodeId !== null"
-          @click="handleDeleteFromMenu"
-        >
-          <Icon
-            class="text-sm"
-            :icon="
-              deletingCodeId !== null
-                ? 'material-symbols:progress-activity'
-                : 'material-symbols:delete'
-            "
-            :class="deletingCodeId !== null ? 'animate-spin' : ''"
-          />
-          删除
-        </button>
-      </div>
+          <button
+            class="flex h-10 w-full items-center gap-2.5 rounded-sm px-3 text-left text-[15px] text-label transition-colors duration-150 hover:bg-surface-secondary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            aria-label="复制取件码"
+            @click="handleCopyCode(menuTargetItem?.code || '')"
+          >
+            <Icon
+              class="text-[18px] text-label-secondary"
+              icon="material-symbols:content-copy"
+              aria-hidden="true"
+            />
+            复制取件码
+          </button>
+          <button
+            class="flex h-10 w-full items-center gap-2.5 rounded-sm px-3 text-left text-[15px] text-label transition-colors duration-150 hover:bg-surface-secondary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            aria-label="查看取件码详情"
+            @click="handleViewDetailFromMenu"
+          >
+            <Icon
+              class="text-[18px] text-label-secondary"
+              icon="material-symbols:visibility"
+              aria-hidden="true"
+            />
+            查看详情
+          </button>
+          <div class="mx-2.5 my-1 h-px bg-hairline"></div>
+          <button
+            class="flex h-10 w-full items-center gap-2.5 rounded-sm px-3 text-left text-[15px] text-danger transition-colors duration-150 hover:bg-danger-tint focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            aria-label="删除取件码"
+            :disabled="deletingCodeId !== null"
+            @click="handleDeleteFromMenu"
+          >
+            <Icon
+              class="text-[18px]"
+              :icon="
+                deletingCodeId !== null
+                  ? 'material-symbols:progress-activity'
+                  : 'material-symbols:delete'
+              "
+              :class="deletingCodeId !== null ? 'animate-spin' : ''"
+              aria-hidden="true"
+            />
+            删除
+          </button>
+        </Motion>
+      </AnimatePresence>
     </Teleport>
   </div>
 </template>

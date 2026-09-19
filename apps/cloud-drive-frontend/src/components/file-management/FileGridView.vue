@@ -40,32 +40,37 @@ const handleOpenMenu = (file: FileDisplayItem, event: MouseEvent) => {
   const anchor = event.currentTarget
   if (anchor instanceof HTMLElement) emit('open-menu', file, anchor)
 }
+
+const isSelected = (key: FileItemKey) => props.selectedIds.has(key)
+
+const cardClass = (key: FileItemKey) =>
+  [
+    'relative cursor-pointer select-none rounded-md bg-surface p-4 shadow-card transition-[transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-popover',
+    isSelected(key) ? 'ring-2 ring-primary' : '',
+  ].join(' ')
 </script>
 
 <template>
   <div>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <!-- 「..」返回上一级目录卡 -->
       <div
         v-if="hasParentFolder"
-        class="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900/40"
+        class="relative cursor-pointer select-none rounded-md bg-surface p-4 shadow-card transition-[transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-popover"
         role="button"
         tabindex="0"
         @click="emit('go-parent')"
         @keyup.enter.self="emit('go-parent')"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-3">
-            <div
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-            >
-              <Icon class="text-[22px]" icon="material-symbols:folder" />
-            </div>
-            <div class="min-w-0">
-              <div class="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                ..
-              </div>
-              <div class="text-xs text-slate-500">返回上一级目录</div>
-            </div>
+        <div class="flex items-start gap-3">
+          <span
+            class="flex h-11 w-11 flex-none items-center justify-center rounded-sm bg-warning-tint text-warning"
+          >
+            <Icon class="text-[22px]" icon="material-symbols:folder" />
+          </span>
+          <div class="min-w-0">
+            <p class="truncate text-[15px] font-semibold leading-5 text-label">..</p>
+            <p class="mt-0.5 text-[13px] text-label-secondary">返回上一级目录</p>
           </div>
         </div>
       </div>
@@ -73,59 +78,78 @@ const handleOpenMenu = (file: FileDisplayItem, event: MouseEvent) => {
       <div
         v-for="file in files"
         :key="file.key"
-        class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900/40"
-        :class="file.type === 'folder' ? 'cursor-pointer' : ''"
+        :class="cardClass(file.key)"
         :role="file.type === 'folder' ? 'button' : undefined"
         :tabindex="file.type === 'folder' ? 0 : undefined"
         @click="handleItemClick(file)"
         @keyup.enter.self="handleItemClick(file)"
       >
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex min-w-0 items-center gap-3">
-            <div
-              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-              :class="`${file.iconBg} ${file.iconFg}`"
-            >
-              <Icon class="text-[22px]" :icon="file.icon" />
-            </div>
-            <div class="min-w-0">
-              <div class="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {{ file.name }}
-              </div>
-              <div class="text-xs text-slate-500">{{ file.typeLabel }}</div>
-            </div>
+        <div class="flex items-start gap-3">
+          <span
+            class="flex h-11 w-11 flex-none items-center justify-center rounded-sm"
+            :class="`${file.iconBg} ${file.iconFg}`"
+          >
+            <Icon class="text-[22px]" :icon="file.icon" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="line-clamp-2 text-[15px] font-semibold leading-5 text-label">
+              {{ file.name }}
+            </p>
+            <p class="mt-0.5 truncate text-[13px] text-label-secondary">{{ file.typeLabel }}</p>
           </div>
-          <input
-            class="rounded border-slate-300 text-primary focus:ring-primary/20"
-            type="checkbox"
-            :aria-label="`选择 ${file.name}`"
-            :checked="selectedIds.has(file.key)"
-            @click.stop
-            @change="handleToggleSelect(file, $event)"
-          />
+          <label class="inline-flex flex-none cursor-pointer pt-0.5" @click.stop>
+            <input
+              type="checkbox"
+              class="peer sr-only"
+              :aria-label="`选择 ${file.name}`"
+              :checked="isSelected(file.key)"
+              @change="handleToggleSelect(file, $event)"
+            />
+            <span
+              class="flex h-[18px] w-[18px] items-center justify-center rounded-md border-[1.5px] border-label-tertiary bg-surface transition-all duration-100 hover:border-primary peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary/50 active:scale-[0.88]"
+            >
+              <svg
+                v-if="isSelected(file.key)"
+                class="h-[11px] w-[11px]"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="m5 12.5 5 5L19 8"
+                  stroke="#fff"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+          </label>
         </div>
 
-        <div class="mt-4 flex items-center justify-between text-xs text-slate-500">
+        <div
+          class="mt-3.5 flex items-center justify-between gap-2 text-caption text-label-secondary"
+        >
           <span>{{ file.type === 'folder' ? '-' : formatBytes(file.size) }}</span>
           <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
         </div>
 
-        <div class="mt-3 flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div
-              class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+        <div class="mt-3 flex items-center justify-between gap-2">
+          <div class="flex min-w-0 items-center gap-2">
+            <span
+              class="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-surface-tertiary text-[10px] font-bold tracking-[0.02em] text-label-secondary"
             >
               {{ ownerBadge }}
-            </div>
-            <span class="text-xs text-slate-500">{{ ownerName }}</span>
+            </span>
+            <span class="truncate text-caption text-label-secondary">{{ ownerName }}</span>
           </div>
           <button
-            class="rounded-lg p-2 text-slate-400 hover:bg-white/50 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:hover:bg-slate-900 dark:hover:text-slate-200"
+            class="flex h-8 w-8 flex-none items-center justify-center rounded-sm text-label-secondary transition-colors duration-150 hover:bg-surface-tertiary hover:text-label"
             type="button"
             :aria-label="`${file.name} 操作菜单`"
             @click.stop="handleOpenMenu(file, $event)"
           >
-            <Icon icon="material-symbols:more-vert" />
+            <Icon class="text-[18px]" icon="material-symbols:more-vert" />
           </button>
         </div>
       </div>
@@ -134,9 +158,9 @@ const handleOpenMenu = (file: FileDisplayItem, event: MouseEvent) => {
         <div class="flex flex-col items-center justify-center text-center">
           <Icon
             icon="material-symbols:progress-activity"
-            class="mb-3 animate-spin text-4xl text-primary"
+            class="mb-3 animate-spin text-[28px] text-primary"
           />
-          <p class="text-sm text-slate-400">加载中...</p>
+          <p class="text-subhead text-label-tertiary">加载中...</p>
         </div>
       </div>
       <div v-else-if="files.length === 0" class="col-span-full py-20">

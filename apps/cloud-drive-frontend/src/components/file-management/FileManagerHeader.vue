@@ -65,41 +65,48 @@ const handleFolderInput = (event: Event) => {
 }
 
 defineExpose({ openFileDialog, openFolderDialog })
+
+const secondaryButtonClass =
+  'flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-semibold text-label-secondary ring-1 ring-hairline transition-[background-color,scale] duration-150 hover:bg-surface-secondary hover:text-label active:scale-[0.97]'
 </script>
 
 <template>
   <div class="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-center lg:justify-between">
     <div>
-      <nav class="mb-2 flex items-center gap-2 overflow-x-auto text-sm text-slate-500">
+      <nav
+        class="mb-1.5 flex items-center gap-1.5 overflow-x-auto text-subhead text-label-tertiary"
+      >
         <button
-          class="flex items-center rounded hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+          class="flex items-center rounded-sm transition-colors duration-150 hover:text-primary"
           type="button"
           aria-label="返回根目录"
           @click="navigateToBreadcrumb(0)"
         >
-          <Icon class="mr-1 text-sm" icon="material-symbols:home" />
+          <Icon class="mr-1 text-[14px]" icon="material-symbols:home" />
           root
         </button>
         <template v-for="(breadcrumb, index) in nestedBreadcrumbs" :key="breadcrumb.id">
-          <Icon class="text-sm" icon="material-symbols:chevron-right" />
+          <Icon class="text-[14px]" icon="material-symbols:chevron-right" />
           <button
             v-if="!isLastBreadcrumb(index)"
-            class="flex items-center rounded hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            class="rounded-sm transition-colors duration-150 hover:text-primary"
             type="button"
             :aria-label="`导航到 ${breadcrumb.name} 文件夹`"
             @click="navigateToBreadcrumb(index + 1)"
           >
             {{ breadcrumb.name }}
           </button>
-          <span v-else class="font-medium text-slate-900 dark:text-slate-100">
-            {{ breadcrumb.name }}
-          </span>
+          <span v-else class="font-medium text-label">{{ breadcrumb.name }}</span>
         </template>
       </nav>
-      <h2 class="text-2xl font-bold text-slate-900 dark:text-slate-100">
-        {{ currentFolderName }}
-      </h2>
-      <p v-if="errorMessage" class="mt-2 text-sm text-red-500">{{ errorMessage }}</p>
+      <h2 class="text-title-2 text-label">{{ currentFolderName }}</h2>
+      <p
+        v-if="errorMessage"
+        class="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-danger"
+      >
+        <Icon class="text-[14px]" icon="material-symbols:error-outline-rounded" />
+        {{ errorMessage }}
+      </p>
     </div>
 
     <div class="flex flex-wrap items-center gap-3">
@@ -114,81 +121,83 @@ defineExpose({ openFileDialog, openFolderDialog })
       />
 
       <button
-        class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+        :class="secondaryButtonClass"
         type="button"
         aria-label="新建文件夹"
         @click="emit('create-folder')"
       >
-        <Icon class="text-[20px]" icon="material-symbols:create-new-folder" />
+        <Icon class="text-[18px]" icon="material-symbols:create-new-folder" />
         新建文件夹
       </button>
 
+      <!-- 移动端：拆分为两个按钮 -->
       <div class="flex flex-wrap items-center gap-3 sm:hidden">
         <button
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50"
+          class="flex h-10 items-center gap-1.5 rounded-full bg-primary px-4 text-sm font-semibold text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed"
           type="button"
           aria-label="上传文件"
           @click="openFileDialog"
         >
-          <Icon class="text-[20px]" icon="material-symbols:upload" />
+          <Icon class="text-[18px]" icon="material-symbols:upload" />
           上传文件
         </button>
         <button
-          class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+          :class="secondaryButtonClass"
           type="button"
           aria-label="上传文件夹"
           @click="openFolderDialog"
         >
-          <Icon icon="material-symbols:folder" />
+          <Icon class="text-[18px]" icon="material-symbols:folder" />
           上传文件夹
         </button>
       </div>
 
+      <!-- 桌面端：上传 split 按钮 + 悬停下拉（菜单从按钮 scale 0.95→1 生长） -->
       <div class="group relative hidden sm:block">
         <button
-          class="flex items-center gap-2 rounded-lg bg-primary px-6 py-2 text-sm font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50"
+          class="flex h-10 items-center gap-1.5 rounded-full bg-primary px-5 text-sm font-semibold text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed"
           type="button"
           aria-label="上传文件或文件夹"
         >
-          <Icon class="text-[20px]" icon="material-symbols:upload" />
+          <Icon class="text-[18px]" icon="material-symbols:upload" />
           上传
         </button>
         <div
-          class="invisible absolute right-0 top-full z-20 mt-2 w-48 rounded-xl border border-slate-200 bg-white py-2 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100 dark:border-slate-800 dark:bg-slate-950"
+          class="invisible absolute right-0 top-full z-40 mt-1.5 w-44 origin-top-right scale-[0.95] rounded-md bg-surface p-1.5 opacity-0 shadow-popover transition-all duration-150 ease-out group-hover:visible group-hover:scale-100 group-hover:opacity-100"
         >
           <button
-            class="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:text-slate-300 dark:hover:bg-slate-900"
+            class="flex h-9 w-full items-center gap-2.5 rounded-sm px-2.5 text-sm text-label transition-colors duration-150 hover:bg-surface-secondary"
             type="button"
             aria-label="上传文件"
             @click="openFileDialog"
           >
-            <Icon icon="material-symbols:description" />
+            <Icon class="text-[16px] text-label-secondary" icon="material-symbols:description" />
             上传文件
           </button>
           <button
-            class="flex w-full items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:text-slate-300 dark:hover:bg-slate-900"
+            class="flex h-9 w-full items-center gap-2.5 rounded-sm px-2.5 text-sm text-label transition-colors duration-150 hover:bg-surface-secondary"
             type="button"
             aria-label="上传文件夹"
             @click="openFolderDialog"
           >
-            <Icon icon="material-symbols:folder" />
+            <Icon class="text-[16px] text-label-secondary" icon="material-symbols:folder" />
             上传文件夹
           </button>
         </div>
       </div>
 
+      <!-- 上传进度入口 -->
       <button
         v-if="uploadTaskCount > 0"
-        class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
-        :class="isUploadPanelOpen ? 'bg-slate-50 dark:bg-slate-900' : ''"
+        :class="[secondaryButtonClass, isUploadPanelOpen ? 'bg-surface-secondary' : '']"
         type="button"
         aria-label="查看上传进度"
         @click="emit('toggle-upload-panel')"
       >
         <Icon
-          class="text-[20px]"
+          class="text-[18px]"
           :icon="uploadStatusIcon"
-          :class="isUploading ? 'animate-spin text-primary' : 'text-green-500'"
+          :class="isUploading ? 'animate-spin text-primary' : 'text-primary'"
         />
         <span v-if="isUploading">{{ normalizedProgress }}%</span>
         <span v-else>{{ completedUploadCount }}/{{ uploadTaskCount }}</span>

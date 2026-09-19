@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Icon } from '@iconify/vue'
+import { AnimatePresence, Motion } from 'motion-v'
+import { springSnappy } from '../../utils/motion'
 import type { ToastType } from '../../types/file'
 
 const props = defineProps<{
@@ -14,43 +16,35 @@ const icon = computed(() => {
   if (props.type === 'error') return 'material-symbols:error'
   return 'material-symbols:info'
 })
-const containerClass = computed(() => {
-  if (props.type === 'success')
-    return 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
-  if (props.type === 'error')
-    return 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
-  return 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
-})
 const iconClass = computed(() => {
-  if (props.type === 'success') return 'text-green-500'
-  if (props.type === 'error') return 'text-red-500'
-  return 'text-blue-500'
-})
-const textClass = computed(() => {
-  if (props.type === 'success') return 'text-green-800 dark:text-green-200'
-  if (props.type === 'error') return 'text-red-800 dark:text-red-200'
-  return 'text-blue-800 dark:text-blue-200'
+  if (props.type === 'success') return 'text-primary'
+  if (props.type === 'error') return 'text-danger'
+  return 'text-info'
 })
 </script>
 
 <template>
-  <Transition
-    enter-active-class="transform ease-out duration-300 transition"
-    enter-from-class="translate-y-2 opacity-0"
-    enter-to-class="translate-y-0 opacity-100"
-    leave-active-class="transition ease-in duration-200"
-    leave-from-class="opacity-100"
-    leave-to-class="opacity-0"
-  >
-    <div
-      v-if="visible"
-      class="fixed right-4 top-4 z-50 flex items-center gap-3 rounded-xl border px-6 py-4 shadow-2xl"
-      :class="containerClass"
-      :role="type === 'error' ? 'alert' : 'status'"
-      aria-live="polite"
-    >
-      <Icon :icon="icon" class="text-2xl" :class="iconClass" />
-      <span class="font-medium" :class="textClass">{{ message }}</span>
-    </div>
-  </Transition>
+  <!--
+    顶部居中 Toast：外层仅负责定位（flex 居中，避免 translate 冲突），
+    内层胶囊由 motion-v 弹簧驱动（DESIGN.md §2.4：damping 1.0 / response 0.3 观感，
+    降级由 App.vue MotionConfig reduced-motion="user" 处理）。
+  -->
+  <div class="pointer-events-none fixed inset-x-0 top-[72px] z-60 flex justify-center px-4">
+    <AnimatePresence>
+      <Motion
+        v-if="visible"
+        key="toast"
+        :initial="{ opacity: 0, y: -8, scale: 0.98 }"
+        :animate="{ opacity: 1, y: 0, scale: 1 }"
+        :exit="{ opacity: 0, y: -8 }"
+        :transition="springSnappy"
+        class="pointer-events-auto flex h-10 items-center gap-2 rounded-full bg-material-thick px-4.5 shadow-floating backdrop-blur-[20px] backdrop-saturate-[180%]"
+        :role="type === 'error' ? 'alert' : 'status'"
+        aria-live="polite"
+      >
+        <Icon :icon="icon" class="text-lg" :class="iconClass" />
+        <span class="text-sm font-medium text-label">{{ message }}</span>
+      </Motion>
+    </AnimatePresence>
+  </div>
 </template>

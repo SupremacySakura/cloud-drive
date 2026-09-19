@@ -144,28 +144,30 @@ const handleRetrieve = async () => {
 </script>
 
 <template>
-  <div
-    class="bg-[#f6f8f7] dark:bg-[#10221b] text-slate-900 dark:text-slate-100 min-h-screen flex flex-col font-sans relative z-0"
-  >
-    <main class="relative z-10 flex flex-1 flex-col items-center justify-center p-4 sm:p-8 lg:p-12">
+  <div class="flex min-h-screen flex-col">
+    <main class="flex flex-1 items-center justify-center p-4 sm:p-8 lg:p-12">
       <!-- Main Container -->
       <div class="w-full max-w-[480px] space-y-8">
         <!-- Entry Card -->
-        <div
-          class="rounded-xl border border-primary/10 bg-white p-5 shadow-xl shadow-primary/5 dark:bg-slate-900/50 sm:p-8"
-        >
-          <div class="text-center mb-8">
-            <h1 class="text-3xl font-black text-slate-900 dark:text-slate-100 mb-2">文件取件</h1>
-            <p class="text-slate-500 dark:text-slate-400">请输入您的 6 位提取码获取文件</p>
+        <div class="rounded-xl bg-surface p-6 shadow-card sm:p-8">
+          <div class="mb-7 text-center">
+            <h1 class="text-display mb-2 text-label">文件取件</h1>
+            <p class="text-body text-label-secondary">请输入您的 6 位提取码获取文件</p>
           </div>
           <div class="space-y-6">
-            <div class="grid grid-cols-6 gap-2 sm:gap-4">
+            <!-- 6 位取件码：输入自动跳格 / Backspace 回退 / 方向键移动 / 粘贴分发 -->
+            <div class="grid grid-cols-6 gap-2 sm:gap-2.5" :class="errorMessage && 'code-shake'">
               <input
                 v-for="(_, index) in codeDigits"
                 :key="index"
                 :ref="el => setInputRef(el as HTMLInputElement | null, index)"
                 :aria-label="`取件码第${index + 1}位`"
-                class="aspect-square min-w-0 w-full rounded-lg border-2 border-slate-200 bg-transparent text-center text-xl font-bold uppercase transition-all focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none dark:border-slate-700 sm:text-2xl"
+                class="aspect-square min-w-0 w-full cursor-default rounded-sm border-[1.5px] text-center font-mono text-title-3 uppercase text-label caret-primary transition-[border-color,background-color,box-shadow] duration-150 placeholder:text-label-tertiary focus:outline-none"
+                :class="
+                  errorMessage
+                    ? 'border-danger bg-surface ring-[3px] ring-danger-tint'
+                    : 'border-hairline bg-surface-secondary focus:border-primary focus:bg-surface focus:ring-[3px] focus:ring-primary-tint'
+                "
                 maxlength="1"
                 inputmode="text"
                 placeholder="·"
@@ -177,9 +179,12 @@ const handleRetrieve = async () => {
                 @paste="handlePaste"
               />
             </div>
+            <p v-if="errorMessage" class="text-center text-[13px] font-medium text-danger">
+              {{ errorMessage }}
+            </p>
             <button
               aria-label="提取文件"
-              class="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold h-14 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary/20 focus:ring-2 focus:ring-primary/50 focus:outline-none"
+              class="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-headline text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="!canSubmit"
               @click="handleRetrieve"
             >
@@ -187,55 +192,47 @@ const handleRetrieve = async () => {
               {{ isLoading ? '提取中...' : '提取文件' }}
             </button>
           </div>
-          <p v-if="errorMessage" class="mt-4 text-center text-sm text-red-500">
-            {{ errorMessage }}
-          </p>
           <div
-            class="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400 dark:text-slate-500 uppercase tracking-widest font-semibold"
+            class="mt-6 flex items-center justify-center gap-1.5 border-t border-hairline pt-4 text-caption text-label-tertiary"
           >
-            <span class="material-symbols-outlined text-sm">lock_clock</span>
+            <span class="material-symbols-outlined text-[14px]">lock_clock</span>
             仅限有效期内提取
           </div>
         </div>
 
         <!-- Success State Section -->
         <div v-if="successState" class="space-y-4">
-          <div class="flex items-center gap-2 px-2">
-            <span class="material-symbols-outlined text-primary text-sm">check_circle</span>
-            <h3 class="text-sm font-bold uppercase tracking-wider text-slate-500">已提取文件</h3>
+          <div class="flex items-center gap-2 px-2 text-primary">
+            <span class="material-symbols-outlined text-[18px]">check_circle</span>
+            <h3 class="text-headline">已提取文件</h3>
           </div>
           <div
-            class="flex flex-col items-center gap-5 rounded-xl border border-primary/20 bg-white p-5 shadow-lg dark:bg-slate-900/50 sm:flex-row sm:gap-6 sm:p-6"
+            class="flex flex-col items-center gap-5 rounded-lg bg-surface p-6 shadow-card sm:flex-row sm:gap-6"
           >
             <div
-              class="h-20 w-16 rounded-lg border flex items-center justify-center flex-shrink-0 relative overflow-hidden group"
-              :class="[downloadedFile.iconBg, downloadedFile.iconFg, 'border-current/20']"
+              class="relative flex h-20 w-16 flex-none items-center justify-center overflow-hidden rounded-md border border-current/20"
+              :class="[downloadedFile.iconBg, downloadedFile.iconFg]"
             >
-              <div
-                class="absolute inset-0 bg-current opacity-5 group-hover:opacity-10 transition-opacity"
-              ></div>
+              <div class="absolute inset-0 bg-current opacity-5"></div>
               <Icon :icon="downloadedFile.typeIcon" class="text-4xl" />
               <div
-                class="absolute bottom-1 right-1 bg-current text-[8px] text-white px-1 rounded font-bold"
+                class="absolute bottom-1 right-1 rounded bg-current px-1 text-[8px] font-bold text-white"
                 :class="downloadedFile.iconFg.replace('text-', 'bg-')"
               >
                 {{ downloadedFile.extLabel }}
               </div>
             </div>
-            <div class="flex-1 text-center sm:text-left overflow-hidden">
-              <h4
-                class="text-slate-900 dark:text-slate-100 font-bold truncate text-lg"
-                :title="downloadedFile.name"
-              >
+            <div class="min-w-0 flex-1 overflow-hidden text-center sm:text-left">
+              <h4 class="truncate text-title-3 text-label" :title="downloadedFile.name">
                 {{ downloadedFile.name }}
               </h4>
-              <p class="text-slate-500 dark:text-slate-400 text-sm">
+              <p class="mt-1 text-subhead text-label-secondary">
                 {{ downloadedFile.size }} • 下载成功
               </p>
             </div>
             <button
               aria-label="重新下载文件"
-              class="w-full sm:w-auto px-6 h-12 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-lg font-bold flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform focus:ring-2 focus:ring-slate-400 focus:outline-none"
+              class="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-label px-6 text-headline text-white transition-[background-color,scale] duration-150 hover:bg-label/85 active:scale-[0.97] sm:w-auto"
               @click="handleRetrieve"
             >
               <span class="material-symbols-outlined text-xl">download</span>
@@ -245,23 +242,44 @@ const handleRetrieve = async () => {
         </div>
 
         <!-- Security Footer -->
-        <div class="text-center py-4 border-t border-primary/5">
-          <p class="text-xs text-slate-400 dark:text-slate-500 leading-relaxed">
+        <div class="border-t border-hairline py-4 text-center">
+          <p class="text-caption leading-relaxed text-label-tertiary">
             传输过程全程加密，提取码过期后将无法下载文件。
-            <br />
           </p>
         </div>
       </div>
     </main>
-
-    <!-- Background Decoration -->
-    <div class="fixed inset-0 pointer-events-none z-[-1] overflow-hidden">
-      <div
-        class="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px]"
-      ></div>
-      <div
-        class="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px]"
-      ></div>
-    </div>
   </div>
 </template>
+
+<style scoped>
+/* 失败 shake：0 → -8 → 8 → -5 → 5 → 0，共 400ms（DESIGN.md §5.2 FilePickup） */
+@keyframes pickup-code-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-8px);
+  }
+  40% {
+    transform: translateX(8px);
+  }
+  60% {
+    transform: translateX(-5px);
+  }
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.code-shake {
+  animation: pickup-code-shake 400ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-shake {
+    animation: none;
+  }
+}
+</style>

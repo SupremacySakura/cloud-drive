@@ -36,70 +36,80 @@ const submitJump = () => {
   jumpToPageInput.value = ''
   requestPage(target)
 }
+
+const pageButtonClass =
+  'min-w-8 rounded-full text-[13px] font-semibold tracking-[0.01em] transition-[transform,background-color,color] duration-100'
 </script>
 
 <template>
   <div
-    class="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+    class="flex flex-col gap-3 border-t border-hairline bg-surface px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-6"
   >
-    <p class="text-xs text-slate-500">
-      Showing
-      <span class="font-bold text-slate-900 dark:text-slate-100"
-        >{{ startIndex }}-{{ endIndex }}</span
-      >
-      of
-      <span class="font-bold text-slate-900 dark:text-slate-100">{{ totalCount }}</span>
-      items
+    <p class="text-caption text-label-secondary">
+      第 <span class="font-bold text-label">{{ startIndex }}-{{ endIndex }}</span> 项，共
+      <span class="font-bold text-label">{{ totalCount }}</span> 项
     </p>
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex flex-wrap items-center gap-1">
       <button
-        class="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:hover:bg-slate-900"
+        :class="[
+          pageButtonClass,
+          'flex h-8 items-center justify-center px-1.5 text-label-secondary hover:bg-surface-secondary hover:text-label active:scale-[0.94] disabled:cursor-default disabled:opacity-55 disabled:hover:bg-transparent',
+          loading && 'pointer-events-none opacity-45',
+        ]"
         type="button"
         aria-label="上一页"
         :disabled="page <= 1 || loading"
         @click="requestPage(page - 1)"
       >
-        <Icon class="text-sm" icon="material-symbols:chevron-left" />
+        <Icon class="text-[16px]" icon="material-symbols:chevron-left" />
       </button>
       <button
         v-for="pageNumber in pageNumbers"
         :key="pageNumber"
-        class="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/30"
-        :class="
+        :class="[
+          pageButtonClass,
+          'h-8 px-1.5',
           pageNumber === page
-            ? 'bg-primary font-bold text-white'
-            : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900'
-        "
+            ? 'cursor-default bg-primary-tint font-bold text-primary'
+            : 'text-label-secondary hover:bg-surface-secondary hover:text-label active:scale-[0.94] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent',
+          loading && pageNumber !== page && 'pointer-events-none opacity-45',
+        ]"
         type="button"
         :aria-label="`第 ${pageNumber} 页`"
         :aria-current="pageNumber === page ? 'page' : undefined"
-        :disabled="loading"
+        :disabled="loading && pageNumber !== page"
         @click="requestPage(pageNumber)"
       >
         {{ pageNumber }}
       </button>
-      <span v-if="safeTotalPages > 3" class="px-1 text-slate-400">...</span>
+      <span v-if="safeTotalPages > 3" class="px-1.5 text-[13px] text-label-tertiary">…</span>
       <button
-        class="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-800 dark:hover:bg-slate-900"
+        :class="[
+          pageButtonClass,
+          'flex h-8 items-center justify-center px-1.5 text-label-secondary hover:bg-surface-secondary hover:text-label active:scale-[0.94] disabled:cursor-default disabled:opacity-55 disabled:hover:bg-transparent',
+          loading && 'pointer-events-none opacity-45',
+        ]"
         type="button"
         aria-label="下一页"
         :disabled="page >= safeTotalPages || loading"
         @click="requestPage(page + 1)"
       >
-        <Icon class="text-sm" icon="material-symbols:chevron-right" />
+        <Icon class="text-[16px]" icon="material-symbols:chevron-right" />
       </button>
-      <div v-if="safeTotalPages > 1" class="ml-2 flex items-center gap-1">
-        <span class="text-xs text-slate-400">跳至</span>
+      <div v-if="safeTotalPages > 1" class="ml-2.5 flex items-center gap-1.5">
+        <span class="text-caption text-label-tertiary">跳至</span>
         <input
           v-model="jumpToPageInput"
           type="number"
           :min="1"
           :max="safeTotalPages"
+          :disabled="loading"
           aria-label="跳转页码"
-          class="w-12 rounded border border-slate-200 bg-white px-1.5 py-1 text-center text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          placeholder="页码"
+          class="h-8 w-14 rounded-sm border border-hairline bg-surface-secondary px-2 text-center text-[13px] text-label transition-[border-color,background-color,box-shadow] duration-150 placeholder:text-label-tertiary focus:border-primary focus:bg-surface focus:outline-none focus:ring-[3px] focus:ring-primary-tint disabled:opacity-45"
           @keyup.enter="submitJump"
         />
-        <span class="text-xs text-slate-400">页</span>
+        <span class="text-caption text-label-tertiary">页</span>
       </div>
     </div>
   </div>

@@ -102,40 +102,40 @@ export const detectFileType = (file: File) => {
 export const iconForFile = (file: File) => {
   const kind = detectFileType(file)
   if (kind === FileType.Video)
-    return { icon: 'material-symbols:movie', bg: 'bg-blue-100', fg: 'text-blue-600' }
+    return { icon: 'material-symbols:movie', bg: 'bg-teal-tint', fg: 'text-teal' }
   if (kind === FileType.Image)
-    return { icon: 'material-symbols:image', bg: 'bg-red-100', fg: 'text-red-600' }
+    return { icon: 'material-symbols:image', bg: 'bg-pink-tint', fg: 'text-pink' }
   if (kind === FileType.Audio)
-    return { icon: 'material-symbols:music-note', bg: 'bg-purple-100', fg: 'text-purple-600' }
+    return { icon: 'material-symbols:music-note', bg: 'bg-purple-tint', fg: 'text-purple' }
   if (kind === FileType.Document)
-    return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
-  return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
+    return { icon: 'material-symbols:description', bg: 'bg-primary-tint', fg: 'text-primary' }
+  return { icon: 'material-symbols:description', bg: 'bg-primary-tint', fg: 'text-primary' }
 }
 
 export const iconForListItem = (item: Pick<FileListItem, 'type' | 'file_type'>) => {
   if (item.type === 'folder') {
-    return { icon: 'material-symbols:folder', bg: 'bg-orange-100', fg: 'text-orange-600' }
+    return { icon: 'material-symbols:folder', bg: 'bg-warning-tint', fg: 'text-warning' }
   }
   const kind = item.file_type as FileType
   if (kind === FileType.Video)
-    return { icon: 'material-symbols:movie', bg: 'bg-blue-100', fg: 'text-blue-600' }
+    return { icon: 'material-symbols:movie', bg: 'bg-teal-tint', fg: 'text-teal' }
   if (kind === FileType.Image)
-    return { icon: 'material-symbols:image', bg: 'bg-red-100', fg: 'text-red-600' }
+    return { icon: 'material-symbols:image', bg: 'bg-pink-tint', fg: 'text-pink' }
   if (kind === FileType.Audio)
-    return { icon: 'material-symbols:music-note', bg: 'bg-purple-100', fg: 'text-purple-600' }
+    return { icon: 'material-symbols:music-note', bg: 'bg-purple-tint', fg: 'text-purple' }
   if (kind === FileType.Document)
-    return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
-  return { icon: 'material-symbols:description', bg: 'bg-primary/10', fg: 'text-primary' }
+    return { icon: 'material-symbols:description', bg: 'bg-primary-tint', fg: 'text-primary' }
+  return { icon: 'material-symbols:description', bg: 'bg-primary-tint', fg: 'text-primary' }
 }
 
 export const typeLabelForListItem = (item: Pick<FileListItem, 'type' | 'file_type'>) => {
-  if (item.type === 'folder') return 'Folder'
+  if (item.type === 'folder') return '文件夹'
   const kind = item.file_type as FileType
-  if (kind === FileType.Image) return 'Image'
-  if (kind === FileType.Video) return 'Video'
-  if (kind === FileType.Audio) return 'Audio'
-  if (kind === FileType.Document) return 'Document'
-  return item.file_type || 'File'
+  if (kind === FileType.Image) return '图片'
+  if (kind === FileType.Video) return '视频'
+  if (kind === FileType.Audio) return '音频'
+  if (kind === FileType.Document) return '文档'
+  return '其他'
 }
 
 export const formatTime = (value: string) => {

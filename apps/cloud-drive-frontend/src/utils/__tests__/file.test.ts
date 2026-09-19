@@ -65,31 +65,31 @@ describe('iconForFile', () => {
     const videoFile = new File([''], 'test.mp4', { type: 'video/mp4' })
     const result = iconForFile(videoFile)
     expect(result.icon).toBe('material-symbols:movie')
-    expect(result.bg).toBe('bg-blue-100')
-    expect(result.fg).toBe('text-blue-600')
+    expect(result.bg).toBe('bg-teal-tint')
+    expect(result.fg).toBe('text-teal')
   })
 
   it('should return image icon for image files', () => {
     const imageFile = new File([''], 'test.png', { type: 'image/png' })
     const result = iconForFile(imageFile)
     expect(result.icon).toBe('material-symbols:image')
-    expect(result.bg).toBe('bg-red-100')
-    expect(result.fg).toBe('text-red-600')
+    expect(result.bg).toBe('bg-pink-tint')
+    expect(result.fg).toBe('text-pink')
   })
 
   it('should return music icon for audio files', () => {
     const audioFile = new File([''], 'test.mp3', { type: 'audio/mpeg' })
     const result = iconForFile(audioFile)
     expect(result.icon).toBe('material-symbols:music-note')
-    expect(result.bg).toBe('bg-purple-100')
-    expect(result.fg).toBe('text-purple-600')
+    expect(result.bg).toBe('bg-purple-tint')
+    expect(result.fg).toBe('text-purple')
   })
 
   it('should return document icon for document files', () => {
     const pdfFile = new File([''], 'test.pdf', { type: 'application/pdf' })
     const result = iconForFile(pdfFile)
     expect(result.icon).toBe('material-symbols:description')
-    expect(result.bg).toBe('bg-primary/10')
+    expect(result.bg).toBe('bg-primary-tint')
     expect(result.fg).toBe('text-primary')
   })
 
@@ -105,32 +105,40 @@ describe('iconForListItem', () => {
     const folder = { type: 'folder' as const, file_type: '' }
     const result = iconForListItem(folder)
     expect(result.icon).toBe('material-symbols:folder')
-    expect(result.bg).toBe('bg-orange-100')
-    expect(result.fg).toBe('text-orange-600')
+    expect(result.bg).toBe('bg-warning-tint')
+    expect(result.fg).toBe('text-warning')
   })
 
   it('should return video icon for video type', () => {
     const video = { type: 'file' as const, file_type: FileType.Video }
     const result = iconForListItem(video)
     expect(result.icon).toBe('material-symbols:movie')
+    expect(result.bg).toBe('bg-teal-tint')
+    expect(result.fg).toBe('text-teal')
   })
 
   it('should return image icon for image type', () => {
     const image = { type: 'file' as const, file_type: FileType.Image }
     const result = iconForListItem(image)
     expect(result.icon).toBe('material-symbols:image')
+    expect(result.bg).toBe('bg-pink-tint')
+    expect(result.fg).toBe('text-pink')
   })
 
   it('should return music icon for audio type', () => {
     const audio = { type: 'file' as const, file_type: FileType.Audio }
     const result = iconForListItem(audio)
     expect(result.icon).toBe('material-symbols:music-note')
+    expect(result.bg).toBe('bg-purple-tint')
+    expect(result.fg).toBe('text-purple')
   })
 
   it('should return document icon for document type', () => {
     const doc = { type: 'file' as const, file_type: FileType.Document }
     const result = iconForListItem(doc)
     expect(result.icon).toBe('material-symbols:description')
+    expect(result.bg).toBe('bg-primary-tint')
+    expect(result.fg).toBe('text-primary')
   })
 
   it('should return default icon for other type', () => {
@@ -141,39 +149,39 @@ describe('iconForListItem', () => {
 })
 
 describe('typeLabelForListItem', () => {
-  it('should return Folder for folders', () => {
+  it('should return 文件夹 for folders', () => {
     const folder = { type: 'folder' as const, file_type: '' }
-    expect(typeLabelForListItem(folder)).toBe('Folder')
+    expect(typeLabelForListItem(folder)).toBe('文件夹')
   })
 
-  it('should return Image for image type', () => {
+  it('should return 图片 for image type', () => {
     const image = { type: 'file' as const, file_type: FileType.Image }
-    expect(typeLabelForListItem(image)).toBe('Image')
+    expect(typeLabelForListItem(image)).toBe('图片')
   })
 
-  it('should return Video for video type', () => {
+  it('should return 视频 for video type', () => {
     const video = { type: 'file' as const, file_type: FileType.Video }
-    expect(typeLabelForListItem(video)).toBe('Video')
+    expect(typeLabelForListItem(video)).toBe('视频')
   })
 
-  it('should return Audio for audio type', () => {
+  it('should return 音频 for audio type', () => {
     const audio = { type: 'file' as const, file_type: FileType.Audio }
-    expect(typeLabelForListItem(audio)).toBe('Audio')
+    expect(typeLabelForListItem(audio)).toBe('音频')
   })
 
-  it('should return Document for document type', () => {
+  it('should return 文档 for document type', () => {
     const doc = { type: 'file' as const, file_type: FileType.Document }
-    expect(typeLabelForListItem(doc)).toBe('Document')
+    expect(typeLabelForListItem(doc)).toBe('文档')
   })
 
-  it('should return file_type value for other types', () => {
+  it('should return 其他 for custom file_type values', () => {
     const other = { type: 'file' as const, file_type: 'custom' }
-    expect(typeLabelForListItem(other)).toBe('custom')
+    expect(typeLabelForListItem(other)).toBe('其他')
   })
 
-  it('should return File for undefined file_type', () => {
+  it('should return 其他 for undefined file_type', () => {
     const undefinedType = { type: 'file' as const, file_type: undefined as any }
-    expect(typeLabelForListItem(undefinedType)).toBe('File')
+    expect(typeLabelForListItem(undefinedType)).toBe('其他')
   })
 })
 

@@ -18,8 +18,8 @@ export function useFileActionMenu() {
     }
 
     const rect = button.getBoundingClientRect()
-    const menuHeight = 220
-    const menuWidth = 192
+    const menuHeight = 240
+    const menuWidth = 208
     const padding = 8
     const spaceBelow = window.innerHeight - rect.bottom
     const spaceAbove = rect.top

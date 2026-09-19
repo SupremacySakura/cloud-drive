@@ -241,9 +241,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div
-    class="flex min-w-0 flex-1 flex-col bg-background-light font-display text-slate-900 dark:bg-background-dark dark:text-slate-100"
-  >
+  <div class="flex min-w-0 flex-1 flex-col">
     <LoginRequiredPlaceholder v-if="!userStore.isLoggedIn" />
     <template v-else>
       <main id="main-content" class="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -326,7 +324,7 @@ onMounted(() => {
             <template #footer>
               <FilePagination
                 v-if="sortedFiles.length > 0"
-                class="mt-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
+                class="mt-6 overflow-hidden rounded-md bg-surface shadow-card"
                 :page="page"
                 :total-pages="totalPages"
                 :start-index="startIndex"

@@ -149,46 +149,54 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- 面板容器由调用方 PickupCodes.vue 的 Motion 包裹（与其余弹窗同构）；此处仅面板内容 -->
   <div
-    class="mx-4 w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-900"
+    role="dialog"
+    aria-modal="true"
+    aria-label="创建取件码"
+    class="overflow-hidden rounded-lg bg-surface shadow-popover"
   >
-    <div
-      class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800 sm:px-6"
-    >
-      <h3 class="text-lg font-bold text-slate-900 dark:text-white">创建取件码</h3>
+    <div class="flex items-center justify-between border-b border-hairline px-6 py-5">
+      <h3 class="text-title-3">创建取件码</h3>
       <button
-        class="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+        class="flex h-9 w-9 items-center justify-center rounded-full text-label-secondary transition-[background-color,color,scale] duration-150 hover:bg-surface-secondary hover:text-label active:scale-[0.92]"
         type="button"
+        aria-label="关闭"
         @click="emit('close')"
       >
         <Icon icon="material-symbols:close-rounded" class="text-xl" />
       </button>
     </div>
 
-    <div class="space-y-6 p-4 sm:p-6">
+    <div class="flex flex-col gap-6 p-6">
+      <!-- 结果反馈：成功 700ms 后关闭并 emit success；失败保留弹窗可重试 -->
       <div
         v-if="toast"
-        class="px-4 py-3 rounded-lg text-sm font-medium border"
+        class="flex items-center gap-2 rounded-sm px-3.5 py-2.5 text-[13px] font-medium"
         :class="
           toast.type === 'success'
-            ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800'
-            : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800'
+            ? 'bg-primary-tint text-primary-pressed'
+            : 'bg-danger-tint text-danger'
         "
       >
+        <Icon
+          :icon="
+            toast.type === 'success' ? 'material-symbols:check-circle' : 'material-symbols:error'
+          "
+          class="flex-none text-[16px]"
+        />
         {{ toast.text }}
       </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
-          >选择文件或文件夹
-        </label>
-        <div
-          class="mb-2 flex items-center gap-1 text-xs text-slate-500 overflow-x-auto whitespace-nowrap"
-        >
+
+      <!-- 选择文件或文件夹：单击选中、双击进入文件夹；id=-1 的「..」行仅返回上一级，不可选中 -->
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-semibold text-label">选择文件或文件夹</label>
+        <nav class="mb-1 flex items-center gap-0.5 overflow-x-auto" aria-label="目录路径">
           <button
             v-for="(path, index) in pathStack"
             :key="`${path.id}-${index}`"
             type="button"
-            class="inline-flex items-center gap-1 hover:text-primary transition-colors"
+            class="inline-flex items-center gap-0.5 whitespace-nowrap rounded-sm px-1.5 py-1 text-[13px] text-label-secondary transition-colors duration-150 hover:bg-primary-tint hover:text-primary"
             @click="handleNavigatePath(index)"
           >
             <Icon
@@ -198,107 +206,137 @@ onMounted(() => {
             />
             <span>{{ path.name }}</span>
           </button>
-        </div>
-        <div v-if="loading" class="text-center py-8 text-slate-500">正在加载文件...</div>
-        <div v-else-if="displayFileList.length === 0" class="text-center py-8 text-slate-500">
-          暂无可选文件，请先上传文件。
-        </div>
-        <div
-          v-else
-          class="max-h-48 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg"
-        >
-          <div
-            v-for="item in displayFileList"
-            :key="item.id"
-            class="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            :class="{
-              'bg-primary/10 border-l-2 border-l-primary':
-                selectedItemId === item.id && item.id !== -1,
-            }"
-            @click="handleSelectItem(item)"
-            @dblclick="handleEnterFolder(item)"
-          >
+        </nav>
+        <div class="max-h-54 overflow-y-auto rounded-md border border-hairline">
+          <div v-if="loading" class="flex items-center justify-center gap-3 px-4 py-[22px]">
             <Icon
-              :icon="
-                item.id === -1
-                  ? 'material-symbols:drive-folder-upload-rounded'
-                  : item.type === 'folder'
-                    ? 'material-symbols:folder-outline-rounded'
-                    : 'material-symbols:description-outline-rounded'
-              "
-              class="text-xl"
-              :class="item.type === 'folder' ? 'text-amber-500' : 'text-slate-400'"
+              icon="material-symbols:progress-activity"
+              class="animate-spin text-[18px] text-primary"
             />
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-slate-900 dark:text-white truncate">
-                {{ item.name }}
-              </p>
-              <p class="text-xs text-slate-500">
-                {{ item.id === -1 ? '返回上一级' : item.type === 'folder' ? '文件夹' : '文件' }}
-              </p>
-            </div>
+            <span class="text-subhead text-label-secondary">正在加载文件...</span>
           </div>
+          <div
+            v-else-if="displayFileList.length === 0"
+            class="px-4 py-[22px] text-center text-subhead text-label-secondary"
+          >
+            暂无可选文件，请先上传文件。
+          </div>
+          <template v-else>
+            <template v-for="(item, index) in displayFileList" :key="item.id">
+              <button
+                type="button"
+                class="flex min-h-12 w-full items-center gap-3 px-4 text-left transition-colors duration-150"
+                :class="
+                  selectedItemId === item.id && item.id !== -1
+                    ? 'bg-primary-tint shadow-[inset_2px_0_0_0_var(--color-primary)] hover:bg-primary-tint'
+                    : 'hover:bg-surface-secondary'
+                "
+                @click="handleSelectItem(item)"
+                @dblclick="handleEnterFolder(item)"
+              >
+                <span
+                  class="flex h-8 w-8 flex-none items-center justify-center rounded-sm"
+                  :class="
+                    item.id === -1
+                      ? 'bg-surface-tertiary text-label-secondary'
+                      : item.type === 'folder'
+                        ? 'bg-warning-tint text-warning'
+                        : 'bg-teal-tint text-info'
+                  "
+                >
+                  <Icon
+                    :icon="
+                      item.id === -1
+                        ? 'material-symbols:drive-folder-upload-rounded'
+                        : item.type === 'folder'
+                          ? 'material-symbols:folder-outline-rounded'
+                          : 'material-symbols:description-outline-rounded'
+                    "
+                    class="text-[16px]"
+                  />
+                </span>
+                <span class="flex min-w-0 flex-1 flex-col gap-px">
+                  <span class="truncate text-[15px] font-semibold text-label">
+                    {{ item.name }}
+                  </span>
+                  <span
+                    class="text-caption"
+                    :class="
+                      selectedItemId === item.id && item.id !== -1
+                        ? 'text-primary-pressed'
+                        : 'text-label-tertiary'
+                    "
+                  >
+                    {{ item.id === -1 ? '返回上一级' : item.type === 'folder' ? '文件夹' : '文件' }}
+                  </span>
+                </span>
+                <Icon
+                  v-if="selectedItemId === item.id && item.id !== -1"
+                  icon="material-symbols:check-circle"
+                  class="flex-none text-[18px] text-primary"
+                />
+              </button>
+              <div v-if="index < displayFileList.length - 1" class="ml-15 h-px bg-hairline" />
+            </template>
+          </template>
         </div>
       </div>
 
-      <!-- Max Downloads -->
-      <div>
-        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
-          >最大下载次数
-        </label>
+      <!-- 最大下载次数：范围 1 - 100，越界则「生成取件码」禁用 -->
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-semibold text-label">最大下载次数</label>
         <input
           type="number"
           v-model.number="form.max_downloads"
           :min="minDownloads"
           :max="maxDownloads"
-          class="w-full px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          class="h-11 w-full rounded-sm border border-hairline bg-surface-secondary px-3.5 text-[15px] text-label transition-[border-color,background-color,box-shadow] duration-150 placeholder:text-label-tertiary focus:border-primary focus:bg-surface focus:outline-none focus:ring-[3px] focus:ring-primary-tint"
         />
-        <p class="mt-1 text-xs text-slate-500">范围：{{ minDownloads }} - {{ maxDownloads }}</p>
+        <p class="text-caption text-label-tertiary">
+          范围：{{ minDownloads }} - {{ maxDownloads }}
+        </p>
       </div>
 
-      <!-- Expiration -->
-      <div>
-        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
-          >有效期
-        </label>
-        <div class="grid grid-cols-2 gap-2 sm:flex">
+      <!-- 有效期：分段控件（surface-tertiary 轨道 + 选中白 pill）；到期时间按今天 + 天数实时计算 -->
+      <div class="flex flex-col gap-1.5">
+        <label class="text-sm font-semibold text-label">有效期</label>
+        <div class="inline-flex gap-0.5 self-start rounded-full bg-surface-tertiary p-0.5">
           <button
             v-for="days in expireDayOptions"
             :key="days"
             type="button"
-            class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all"
+            class="h-7 rounded-full px-3.5 text-[13px] font-semibold transition-[background-color,color,box-shadow] duration-150"
             :class="
               form.expire_days === days
-                ? 'bg-primary text-white'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                ? 'bg-surface text-label shadow-sm'
+                : 'text-label-secondary hover:text-label'
             "
             @click="form.expire_days = days"
           >
             {{ days }} 天
           </button>
         </div>
-        <p class="mt-2 text-xs text-slate-500">
+        <p class="text-caption text-label-tertiary">
           到期时间：{{ new Date(expireTime).toLocaleDateString() }}
         </p>
       </div>
     </div>
 
-    <div
-      class="flex flex-col-reverse gap-3 border-t border-slate-200 px-4 py-4 dark:border-slate-800 sm:flex-row sm:justify-end sm:px-6"
-    >
+    <div class="flex justify-end gap-3 border-t border-hairline px-6 py-4">
       <button
         type="button"
-        class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        class="h-10 rounded-full bg-surface px-5 text-sm font-semibold text-label-secondary ring-1 ring-hairline transition-[background-color,scale] duration-150 hover:bg-surface-secondary active:scale-[0.97]"
         @click="emit('close')"
       >
         取消
       </button>
       <button
         type="button"
-        class="px-6 py-2 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        class="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white transition-[background-color,scale] duration-150 hover:bg-primary-hover active:scale-[0.97] active:bg-primary-pressed disabled:cursor-not-allowed disabled:opacity-60"
         :disabled="!canSubmit || submitting"
         @click="handleSubmit"
       >
+        <Icon v-if="submitting" icon="material-symbols:progress-activity" class="animate-spin" />
         {{ submitting ? '创建中...' : '生成取件码' }}
       </button>
     </div>
