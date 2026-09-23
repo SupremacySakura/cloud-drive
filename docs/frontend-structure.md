@@ -40,7 +40,8 @@
 
 ## UI 与样式约定
 
-- 样式体系基于 Tailwind，主色值为 `#10b674`。
-- 暗色模式采用 class 方案（根节点 `dark` 类控制）。
+- 样式体系为 Tailwind v4 CSS-first：设计令牌集中维护在 `src/style.css` 的 `@theme`（颜色/字级/圆角/阴影/动效），唯一权威文档为仓库根目录 `DESIGN.md`。旧 `tailwind.config.js` 已废弃（仅留迁移对照），新代码禁止硬编码色值，并避免使用兼容令牌 `--color-background-light/dark`、`--font-display`。
+- 主色为品牌绿 `#10b674`（语义令牌 `--color-primary`）；浅色优先，暗色模式保留 class 方案能力（`@custom-variant dark`），暗色令牌后续单独定义，当前代码不新增 `dark:` 变体。
+- 动效由 `motion-v` 驱动（`Motion` / `AnimatePresence`），弹簧预设统一取自 `src/utils/motion.ts`（`springSnappy` / `springBouncy` / `fadeTransition`）；减弱动态降级为 `App.vue` 的 `<MotionConfig reduced-motion="user">` 加 `style.css` 的 prefers-\* 媒体查询。新增浮层/弹窗入场必须走 motion-v，不要再引入 Vue `<Transition>`；弹窗结构参照 `ConfirmDialog`（遮罩 + 面板 Motion 同组件内联）。
 - 页面优先使用组合式 API 与 TypeScript 严格模式，减少隐式类型风险。
 - 复杂页面应保留为编排器：API 请求、取消与资源释放放入 composable，重复视图和弹窗放入对应业务组件；模板事件优先使用具名处理函数和 typed emits。

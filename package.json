@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "bash scripts/dev.sh",
     "build": "pnpm --filter cloud-drive-frontend build",
     "build:backend": "cd apps/cloud-drive-backend && go build ./...",
     "typecheck": "pnpm --filter cloud-drive-frontend typecheck",

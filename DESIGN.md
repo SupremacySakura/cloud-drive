@@ -58,7 +58,9 @@
 | `--color-primary-pressed` | `#0b8f5b` | 主按钮按下 |
 | `--color-primary-tint` | `rgba(16,182,116,0.12)` | 图标底、选中底、tag 底 |
 | `--color-danger` | `#ff3b30` | 删除、危险操作 |
-| `--color-warning` | `#ff9500` | 警告（空间不足、即将过期） |
+| `--color-warning` | `#ff9500` | 警告（进度、图标） |
+| `--color-warning-tint` | `rgba(255,149,0,0.12)` | 警告底（tag、图标底） |
+| `--color-warning-strong` | `#c93400` | 警告文字（ tint 底上的深橙，保证对比度） |
 | `--color-info` | `#007aff` | 提示性链接、信息态 |
 
 规则：
@@ -234,6 +236,11 @@ const rubberband = (o, d, c = 0.55) => (o * d * c) / (d + c * Math.abs(o));
 ---
 
 ## 7. 实施路线图
+
+> **状态（2026-09）：已全部完成。** 实际执行与路线的偏差记录：
+> - 动效层引入 `motion-v`（Motion / AnimatePresence），全局降级由 `App.vue` 的 `<MotionConfig reduced-motion="user">` + `style.css` 三段 prefers-* 媒体查询兜底；
+> - 上传面板实现了折叠 + 拖把手换位（拖把手用 `useDragControls`，不干扰列表滚动）；导航抽屉为左滑拖拽关闭（速度方向优先判定）；
+> - 已知折衷：部分图标按钮热区为 36px（工具栏标准），略低于 §4 的 40px 目标；`text-label-tertiary`（对比度 ~3:1）仅用于占位/元数据等非关键文本。
 
 1. **令牌层**：`style.css` 引入 `@theme` 定义第 2 节全部令牌；梳理旧 `tailwind.config.js`，新代码一律用令牌（旧值标记 deprecated）。
 2. **基础组件**：`ui/ConfirmDialog`、`ToastNotice`、按钮/输入原子样式。

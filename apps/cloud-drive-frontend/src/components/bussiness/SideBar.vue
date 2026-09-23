@@ -138,7 +138,7 @@ const linkClass = (to: string) => {
         <p class="text-caption text-label-tertiary">{{ storageDetail }}</p>
         <span
           v-if="isStorageWarning"
-          class="inline-flex h-[22px] flex-none items-center rounded-full bg-warning-tint px-2.5 text-caption font-semibold text-[#c93400]"
+          class="inline-flex h-[22px] flex-none items-center rounded-full bg-warning-tint px-2.5 text-caption font-semibold text-warning-strong"
         >
           空间不足
         </span>

@@ -102,8 +102,19 @@ find data/mysql -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
 ## 开发运行（本地非容器）
 
+在仓库根目录一键启动后端（:9000）和前端（:5173）：
+
 ```bash
 pnpm install
+pnpm run dev
+```
+
+需要本机 MySQL 已启动（如 `docker compose --profile infra up -d`，或任意方式提供的 3306 端口）。
+`Ctrl+C` 会同时停止两端；任一端退出时另一端也会自动停止。
+
+也可以按传统方式分别启动：
+
+```bash
 cd apps/cloud-drive-backend && go run cmd/server/main.go
 cd apps/cloud-drive-frontend && pnpm dev
 ```
