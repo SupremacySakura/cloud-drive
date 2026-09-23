@@ -38,9 +38,9 @@ const activeFilterLabel = computed(
   () => props.filterOptions.find(option => option.key === props.activeFilter)?.label ?? '全部类型',
 )
 const sortLabel = computed(() => {
-  if (props.sortKey === 'name') return 'Name'
-  if (props.sortKey === 'size') return 'Size'
-  return 'Last Modified'
+  if (props.sortKey === 'name') return '名称'
+  if (props.sortKey === 'size') return '大小'
+  return '最近修改'
 })
 
 const closeMenus = () => {
@@ -224,7 +224,7 @@ const segButtonClass =
     <!-- 排序 -->
     <div class="relative w-full sm:w-auto">
       <div class="flex items-center gap-1.5 pr-1 sm:justify-end">
-        <span class="text-caption text-label-tertiary">Sorted by</span>
+        <span class="text-caption text-label-tertiary">排序方式</span>
         <button
           class="flex h-8 items-center gap-1 rounded-sm px-2 text-[13px] font-semibold text-label transition-colors duration-150 hover:bg-primary-tint hover:text-primary"
           type="button"
@@ -247,7 +247,7 @@ const segButtonClass =
           class="absolute right-0 z-40 mt-1.5 min-w-[190px] origin-top-right rounded-md bg-surface p-1.5 shadow-popover"
         >
           <button :class="menuItemClass" type="button" @click="selectSort('name')">
-            <span>Name</span>
+            <span>名称</span>
             <Icon
               v-if="sortKey === 'name'"
               icon="material-symbols:check-rounded"
@@ -255,7 +255,7 @@ const segButtonClass =
             />
           </button>
           <button :class="menuItemClass" type="button" @click="selectSort('modified')">
-            <span>Last Modified</span>
+            <span>最近修改</span>
             <Icon
               v-if="sortKey === 'modified'"
               icon="material-symbols:check-rounded"
@@ -263,7 +263,7 @@ const segButtonClass =
             />
           </button>
           <button :class="menuItemClass" type="button" @click="selectSort('size')">
-            <span>Size</span>
+            <span>大小</span>
             <Icon
               v-if="sortKey === 'size'"
               icon="material-symbols:check-rounded"
@@ -272,7 +272,7 @@ const segButtonClass =
           </button>
           <div class="mx-2.5 my-1 h-px bg-hairline"></div>
           <div class="px-2.5 pb-1 pt-1.5 text-caption text-label-tertiary">
-            {{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}
+            {{ sortDirection === 'asc' ? '升序' : '降序' }}
           </div>
         </Motion>
       </AnimatePresence>

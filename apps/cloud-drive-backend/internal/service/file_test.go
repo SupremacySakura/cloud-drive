@@ -857,3 +857,41 @@ func TestDownloadByPickUpCode_ReservesDownloadBeforeStreaming(t *testing.T) {
 	assert.Empty(t, writer.String())
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestGetPickUpCodeListByUserID_ReportsEffectiveStatus(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+
+	now := time.Now()
+	expiredAt := now.Add(-time.Hour)
+	activeAt := now.Add(24 * time.Hour)
+
+	// 列表查询前先批量回写失效状态（GORM 写操作默认包裹事务）
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `pick_up_code_models` SET `status`=?")).
+		WithArgs(model.PickUpCodeStatusExpire, uint(7), model.PickUpCodeStatusActive, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	// SELECT 模拟回写前的旧数据，验证 VO 组装时仍按有效状态兜底计算
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models` WHERE user_id = ? LIMIT ? OFFSET ?")).
+		WithArgs(uint(7), 10, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "type", "file_id", "folder_id", "download", "max_download",
+			"expire_time", "created_at", "code", "status", "user_id",
+		}).
+			AddRow(1, model.PickUpTargetTypeFile, nil, nil, 1, 10, expiredAt, now, "AAAAAA", model.PickUpCodeStatusActive, 7).
+			AddRow(2, model.PickUpTargetTypeFile, nil, nil, 1, 10, activeAt, now, "BBBBBB", model.PickUpCodeStatusActive, 7).
+			AddRow(3, model.PickUpTargetTypeFile, nil, nil, 10, 10, activeAt, now, "CCCCCC", model.PickUpCodeStatusActive, 7))
+
+	list, err := svc.GetPickUpCodeListByUserID(7, 1, 10)
+
+	require.NoError(t, err)
+	require.Len(t, list, 3)
+	assert.Equal(t, model.PickUpCodeStatusExpire, list[0].Status) // 已过期
+	assert.Equal(t, model.PickUpCodeStatusActive, list[1].Status) // 正常
+	assert.Equal(t, model.PickUpCodeStatusExpire, list[2].Status) // 下载次数打满
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

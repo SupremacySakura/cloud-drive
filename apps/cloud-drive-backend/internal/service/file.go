@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -934,6 +935,12 @@ func (s *fileService) CreatePickUpCode(userID uint, code *model.PickUpCodeModel)
 }
 
 func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
+	// 先批量回写已失效取件码的状态，让数据库与判定口径（过期时间 / 下载上限）保持一致。
+	// 回写是尽力而为：失败不阻断列表，组装 VO 时仍会按有效状态兜底计算。
+	if _, err := s.FileRepository.ExpireOutdatedPickUpCodes(userID, s.currentTime()); err != nil {
+		log.Warn().Err(err).Msg("回写过期取件码状态失败")
+	}
+
 	// 先获取分页的 pickup 码列表
 	list, err := s.FileRepository.GetPickUpCodeListByUserIDAndPage(userID, page, pageSize)
 	if err != nil {
@@ -974,6 +981,7 @@ func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int)
 		}
 	}
 
+	now := s.currentTime()
 	var voList []vo.PickUpCodeListItem
 	for _, item := range list {
 		var name string
@@ -986,6 +994,13 @@ func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int)
 				name = n
 			}
 		}
+		// 兜底计算有效状态：到达过期时间或下载次数打满即视为 Expired，
+		// 与 ResolveActivePickUpCode / IncrementDownloadAndMaybeExpire 的判定口径一致。
+		status := item.Status
+		if status == model.PickUpCodeStatusActive &&
+			(now.After(item.ExpireTime) || item.Download >= item.MaxDownload) {
+			status = model.PickUpCodeStatusExpire
+		}
 		voList = append(voList, vo.PickUpCodeListItem{
 			ID:          item.ID,
 			Code:        item.Code,
@@ -997,7 +1012,7 @@ func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int)
 			MaxDownload: int(item.MaxDownload),
 			ExpireTime:  item.ExpireTime,
 			CreatedAt:   item.CreatedAt,
-			Status:      item.Status,
+			Status:      status,
 		})
 	}
 	return voList, nil

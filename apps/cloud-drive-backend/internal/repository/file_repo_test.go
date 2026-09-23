@@ -410,6 +410,27 @@ func TestFileRepository_GetPickUpCodeListCountByUserID(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Test ExpireOutdatedPickUpCodes
+func TestFileRepository_ExpireOutdatedPickUpCodes(t *testing.T) {
+	db, mock, cleanup := setupMockDB(t)
+	defer cleanup()
+
+	repo := NewFileRepository(db)
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE `pick_up_code_models` SET `status`=?")).
+		WithArgs(model.PickUpCodeStatusExpire, uint(7), model.PickUpCodeStatusActive, now).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
+
+	affected, err := repo.ExpireOutdatedPickUpCodes(7, now)
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), affected)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Test DeletePickUpCodeByIDAndUserID
 func TestFileRepository_DeletePickUpCodeByIDAndUserID(t *testing.T) {
 	db, mock, cleanup := setupMockDB(t)

@@ -60,9 +60,9 @@ export function useFileList() {
     () => fileFilterOptions.find(option => option.key === activeFilter.value)?.label ?? '全部类型',
   )
   const sortLabel = computed(() => {
-    if (sortKey.value === 'name') return 'Name'
-    if (sortKey.value === 'size') return 'Size'
-    return 'Last Modified'
+    if (sortKey.value === 'name') return '名称'
+    if (sortKey.value === 'size') return '大小'
+    return '最近修改'
   })
   const currentFolderName = computed(
     () => breadcrumbs.value[breadcrumbs.value.length - 1]?.name ?? 'root',

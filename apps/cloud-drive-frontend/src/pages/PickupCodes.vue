@@ -71,7 +71,11 @@ const typeIcon = (type: PickupCodeType) => {
 }
 
 const statusLabel = (status: string) => {
-  return status === 'Active' ? 'Active' : 'Expired'
+  return status === 'Active' ? '生效中' : '已过期'
+}
+
+const typeLabel = (type: PickupCodeType) => {
+  return type === 'folder' ? '文件夹' : '文件'
 }
 
 const formatDate = (dateStr: string) => {
@@ -344,7 +348,7 @@ onBeforeUnmount(() => {
               <p class="text-title-1 text-label">{{ stats.expiringSoon }}</p>
               <span
                 class="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-caption font-medium text-label-secondary"
-                >Next 7 days</span
+                >未来 7 天</span
               >
             </div>
           </div>
@@ -386,43 +390,43 @@ onBeforeUnmount(() => {
                     scope="col"
                     class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
-                    Pickup Code
+                    取件码
                   </th>
                   <th
                     scope="col"
                     class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
-                    Associated File
+                    关联文件
                   </th>
                   <th
                     scope="col"
                     class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary sm:table-cell"
                   >
-                    Usage Progress
+                    使用进度
                   </th>
                   <th
                     scope="col"
                     class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary md:table-cell"
                   >
-                    Downloads
+                    下载次数
                   </th>
                   <th
                     scope="col"
                     class="hidden whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary lg:table-cell"
                   >
-                    Expiration
+                    过期时间
                   </th>
                   <th
                     scope="col"
                     class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
-                    Status
+                    状态
                   </th>
                   <th
                     scope="col"
                     class="whitespace-nowrap border-b border-hairline bg-surface-secondary px-4 py-3 text-right text-caption font-semibold uppercase tracking-[0.06em] text-label-secondary"
                   >
-                    Actions
+                    操作
                   </th>
                 </tr>
               </thead>
@@ -435,13 +439,13 @@ onBeforeUnmount(() => {
                         icon="material-symbols:progress-activity"
                         class="animate-spin text-[24px] text-primary"
                       />
-                      <p class="text-subhead text-label-tertiary">Loading...</p>
+                      <p class="text-subhead text-label-tertiary">加载中…</p>
                     </div>
                   </td>
                 </tr>
                 <tr v-else-if="pickupList.length === 0">
                   <td colspan="7" class="px-6 py-10 text-center text-subhead text-label-tertiary">
-                    No pickup codes found. Create your first one!
+                    暂无取件码，点击右上角「创建新取件码」开始
                   </td>
                 </tr>
                 <tr
@@ -473,7 +477,9 @@ onBeforeUnmount(() => {
                         <p class="max-w-[180px] truncate text-[15px] font-semibold text-label">
                           {{ item.name }}
                         </p>
-                        <p class="truncate text-caption text-label-secondary">{{ item.type }}</p>
+                        <p class="truncate text-caption text-label-secondary">
+                          {{ typeLabel(item.type) }}
+                        </p>
                       </div>
                     </div>
                   </td>
@@ -529,11 +535,11 @@ onBeforeUnmount(() => {
             class="flex flex-col gap-3 border-t border-hairline px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"
           >
             <p class="text-caption text-label-secondary">
-              Showing
+              第
               <span class="font-bold text-label">{{ startIndex }}-{{ endIndex }}</span>
-              of
+              项，共
               <span class="font-bold text-label">{{ totalCount }}</span>
-              items
+              项
             </p>
             <div class="flex flex-wrap items-center gap-1">
               <button
@@ -658,29 +664,31 @@ onBeforeUnmount(() => {
 
               <div class="space-y-3">
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-subhead text-label-secondary">File Name</span>
+                  <span class="text-subhead text-label-secondary">文件名</span>
                   <span class="truncate text-[15px] font-medium text-label">{{
                     selectedItem.name
                   }}</span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-subhead text-label-secondary">Type</span>
-                  <span class="text-[15px] font-medium text-label">{{ selectedItem.type }}</span>
+                  <span class="text-subhead text-label-secondary">类型</span>
+                  <span class="text-[15px] font-medium text-label">{{
+                    typeLabel(selectedItem.type)
+                  }}</span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-subhead text-label-secondary">Downloads</span>
+                  <span class="text-subhead text-label-secondary">下载次数</span>
                   <span class="text-[15px] font-medium text-label"
                     >{{ selectedItem.download }} / {{ selectedItem.max_download }}</span
                   >
                 </div>
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-subhead text-label-secondary">Expiration</span>
+                  <span class="text-subhead text-label-secondary">过期时间</span>
                   <span class="text-[15px] font-medium text-label">{{
                     formatDate(selectedItem.expire_time)
                   }}</span>
                 </div>
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-subhead text-label-secondary">Status</span>
+                  <span class="text-subhead text-label-secondary">状态</span>
                   <span
                     class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold"
                     :class="
@@ -690,7 +698,7 @@ onBeforeUnmount(() => {
                     "
                   >
                     <span class="size-1.5 rounded-full bg-current"></span>
-                    {{ selectedItem.status === 'Active' ? 'Active' : 'Expired' }}
+                    {{ statusLabel(selectedItem.status) }}
                   </span>
                 </div>
               </div>
@@ -703,7 +711,7 @@ onBeforeUnmount(() => {
                 aria-label="关闭详情"
                 @click="handleCloseDetail"
               >
-                Close
+                关闭
               </button>
               <button
                 type="button"
@@ -712,7 +720,7 @@ onBeforeUnmount(() => {
                 @click="handleCopyCode(selectedItem.code)"
               >
                 <Icon class="text-[16px]" icon="material-symbols:content-copy" aria-hidden="true" />
-                Copy Code
+                复制取件码
               </button>
             </div>
           </Motion>

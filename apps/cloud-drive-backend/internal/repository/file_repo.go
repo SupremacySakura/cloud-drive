@@ -368,6 +368,19 @@ func (r *FileRepository) GetPickUpCodeListCountByUserID(userID uint) (int64, err
 	return count, nil
 }
 
+// ExpireOutdatedPickUpCodes 将指定用户已失效但状态仍为 Active 的取件码批量回写为 Expired：
+// 到达过期时间，或下载次数已达上限。返回受影响的行数。
+func (r *FileRepository) ExpireOutdatedPickUpCodes(userID uint, now time.Time) (int64, error) {
+	result := r.DB.Model(&model.PickUpCodeModel{}).
+		Where("user_id = ? AND status = ? AND (expire_time < ? OR download >= max_download)",
+			userID, model.PickUpCodeStatusActive, now).
+		Update("status", model.PickUpCodeStatusExpire)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
+}
+
 func (r *FileRepository) GetPickUpCodeByCode(code string) (*model.PickUpCodeModel, error) {
 	var pickupCode model.PickUpCodeModel
 	if err := r.DB.Where("code = ?", code).First(&pickupCode).Error; err != nil {
