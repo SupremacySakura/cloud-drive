@@ -29,6 +29,7 @@ type mockFileService struct {
 	getDashboardOverviewFunc   func(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
 	getListByFolderIDFunc      func(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	getListCountByFolderIDFunc func(folderID uint, userID uint) (int64, error)
+	getOperationLogsFunc       func(userID uint, page, pageSize int) (*vo.OperationLogListResp, error)
 	makeDirectoryFunc          func(folderID uint, name string, userID uint) (uint, error)
 	renameByIDsFunc            func(userID uint, fileID, folderID uint, name string) error
 	moveByIDsFunc              func(userID uint, fileID, folderID, targetFolderID uint) error
@@ -93,6 +94,13 @@ func (m *mockFileService) GetListCountByFolderIDAndUserID(folderID uint, userID 
 		return m.getListCountByFolderIDFunc(folderID, userID)
 	}
 	return 0, nil
+}
+
+func (m *mockFileService) GetOperationLogs(userID uint, page, pageSize int) (*vo.OperationLogListResp, error) {
+	if m.getOperationLogsFunc != nil {
+		return m.getOperationLogsFunc(userID, page, pageSize)
+	}
+	return nil, nil
 }
 
 func (m *mockFileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
@@ -439,6 +447,69 @@ func TestGetListByFolderIDAndUserID_ValidQuery(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "0") // CodeSuccess
+}
+
+// Test GetOperationLogs Handler
+func TestGetOperationLogs_InvalidQuery(t *testing.T) {
+	router, _, _, handler := setupFileHandlerTest()
+	router.GET("/logs", setUserIDMiddleware(1), handler.GetOperationLogs)
+
+	// 无效的分页参数
+	req := httptest.NewRequest(http.MethodGet, "/logs?page=0&page_size=500", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "1001") // CodeInvalidParam
+}
+
+func TestGetOperationLogs_ValidQuery(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	mockFileSvc.getOperationLogsFunc = func(userID uint, page, pageSize int) (*vo.OperationLogListResp, error) {
+		assert.Equal(t, uint(1), userID)
+		assert.Equal(t, 2, page)
+		assert.Equal(t, 20, pageSize)
+		return &vo.OperationLogListResp{
+			List: []vo.OperationLogListItem{
+				{
+					ID:         10,
+					Action:     model.OperationLogActionUpload,
+					TargetType: model.OperationLogTargetTypeFile,
+					TargetID:   88,
+					TargetName: "hello.txt",
+					Detail:     `{"size":5}`,
+				},
+			},
+			Total: 3,
+		}, nil
+	}
+	router.GET("/logs", setUserIDMiddleware(1), handler.GetOperationLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/logs?page=2&page_size=20", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "hello.txt")
+	assert.Contains(t, w.Body.String(), `"total":3`)
+}
+
+func TestGetOperationLogs_ServiceError(t *testing.T) {
+	router, mockFileSvc, _, handler := setupFileHandlerTest()
+	mockFileSvc.getOperationLogsFunc = func(userID uint, page, pageSize int) (*vo.OperationLogListResp, error) {
+		return nil, errors.New("db unavailable")
+	}
+	router.GET("/logs", setUserIDMiddleware(1), handler.GetOperationLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/logs?page=1&page_size=20", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "1004") // CodeServerError
 }
 
 // Test MakeDirectory Handler

@@ -119,20 +119,10 @@ type DashboardFileStatItem struct {
 	Size  uint64 `json:"size"`
 }
 
-type DashboardRecentActivityItem struct {
-	ID         uint      `json:"id"`
-	Name       string    `json:"name"`
-	FolderName string    `json:"folder_name"`
-	FileType   string    `json:"file_type"`
-	Size       uint64    `json:"size"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
 type DashboardOverviewResp struct {
-	StorageUsed        uint64                        `json:"storage_used"`
-	StorageTotal       uint64                        `json:"storage_total"`
-	StorageLeft        uint64                        `json:"storage_left"`
-	StorageUsedPercent int                           `json:"storage_used_percent"`
-	FileStats          []DashboardFileStatItem       `json:"file_stats"`
-	RecentActivities   []DashboardRecentActivityItem `json:"recent_activities"`
+	StorageUsed        uint64                  `json:"storage_used"`
+	StorageTotal       uint64                  `json:"storage_total"`
+	StorageLeft        uint64                  `json:"storage_left"`
+	StorageUsedPercent int                     `json:"storage_used_percent"`
+	FileStats          []DashboardFileStatItem `json:"file_stats"`
 }

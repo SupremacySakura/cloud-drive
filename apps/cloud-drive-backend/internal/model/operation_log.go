@@ -1,0 +1,43 @@
+package model
+
+import "time"
+
+// OperationLogAction 操作日志的动作类型
+type OperationLogAction string
+
+const (
+	OperationLogActionUpload           OperationLogAction = "upload"             // 分片上传完成
+	OperationLogActionUploadInstant    OperationLogAction = "upload_instant"     // 秒传（命中已有文件）
+	OperationLogActionMkdir            OperationLogAction = "mkdir"              // 新建文件夹
+	OperationLogActionRename           OperationLogAction = "rename"             // 重命名
+	OperationLogActionMove             OperationLogAction = "move"               // 移动
+	OperationLogActionDelete           OperationLogAction = "delete"             // 删除
+	OperationLogActionDownload         OperationLogAction = "download"           // 下载
+	OperationLogActionPreview          OperationLogAction = "preview"            // 预览
+	OperationLogActionShareLinkCreate  OperationLogAction = "share_link_create"  // 创建分享链接
+	OperationLogActionShareLinkDelete  OperationLogAction = "share_link_delete"  // 删除分享链接
+	OperationLogActionPickupCodeCreate OperationLogAction = "pickup_code_create" // 创建取件码
+	OperationLogActionPickupCodeDelete OperationLogAction = "pickup_code_delete" // 删除取件码
+)
+
+// OperationLogTargetType 操作目标的实体类型
+type OperationLogTargetType string
+
+const (
+	OperationLogTargetTypeFile   OperationLogTargetType = "file"
+	OperationLogTargetTypeFolder OperationLogTargetType = "folder"
+)
+
+// OperationLogModel 用户操作日志。
+// TargetName / FolderName 为操作发生时的名称快照，目标后续被改名或删除后日志仍可读。
+type OperationLogModel struct {
+	ID         uint                   `gorm:"primaryKey" json:"id"`
+	UserID     uint                   `gorm:"not null;index:idx_op_logs_user_time,priority:1" json:"user_id"` // 操作者
+	Action     OperationLogAction     `gorm:"type:varchar(32);not null" json:"action"`                        // 操作类型
+	TargetType OperationLogTargetType `gorm:"type:varchar(16);not null" json:"target_type"`                   // 目标实体类型
+	TargetID   uint                   `gorm:"not null;default:0" json:"target_id"`                            // 目标实体 ID
+	TargetName string                 `gorm:"type:varchar(255);not null" json:"target_name"`                  // 目标名称快照
+	FolderName string                 `gorm:"type:varchar(255);not null;default:''" json:"folder_name"`       // 所在目录快照，空=根目录/不适用
+	Detail     string                 `gorm:"type:json" json:"detail"`                                        // 扩展信息 JSON：size/old_name/from/to/code 等
+	CreatedAt  time.Time              `gorm:"not null;index:idx_op_logs_user_time,priority:2" json:"created_at"`
+}

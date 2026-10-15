@@ -9,6 +9,7 @@ import (
 	"cloud-drive-backend/internal/vo"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -163,8 +164,8 @@ func validateZipEntryPath(entryPath string) error {
 }
 
 const (
-	defaultStorageLimitBytes    uint64 = 1024 * 1024 * 1024
-	dashboardRecentActivitySize int    = 8
+	defaultStorageLimitBytes uint64 = 1024 * 1024 * 1024
+	operationLogKeepCount    int    = 500
 )
 
 type FileServiceOptions struct {
@@ -181,6 +182,7 @@ type FileService interface {
 	GetDashboardOverview(userID uint, storageLimit uint64) (*dto.DashboardOverviewResp, error)
 	GetListByFolderIDAndUserID(folderID uint, userID uint, page, pageSize int) ([]dto.FileListItem, error)
 	GetListCountByFolderIDAndUserID(folderID uint, userID uint) (int64, error)
+	GetOperationLogs(userID uint, page, pageSize int) (*vo.OperationLogListResp, error)
 	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
 	RenameByIDs(userID uint, fileID, folderID uint, name string) error
 	MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
@@ -201,7 +203,8 @@ type FileService interface {
 // FileService 为对外暴露的接口，保持与原有实现一致
 
 type fileService struct {
-	FileRepository *repository.FileRepository
+	FileRepository         *repository.FileRepository
+	OperationLogRepository *repository.OperationLogRepository
 	FileServiceOptions
 	newMergeLeaseID func() (string, error)
 	now             func() time.Time
@@ -245,10 +248,11 @@ func (s *fileService) buildCanonicalStoragePath(fileHash string) (string, error)
 	return filepath.Join(dir, fileHash), nil
 }
 
-func NewFileService(fileRepository *repository.FileRepository, options FileServiceOptions) FileService {
+func NewFileService(fileRepository *repository.FileRepository, operationLogRepository *repository.OperationLogRepository, options FileServiceOptions) FileService {
 	return &fileService{
-		FileRepository:     fileRepository,
-		FileServiceOptions: options,
+		FileRepository:         fileRepository,
+		OperationLogRepository: operationLogRepository,
+		FileServiceOptions:     options,
 	}
 }
 
@@ -264,6 +268,48 @@ func (s *fileService) currentTime() time.Time {
 		return s.now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+// folderName 尽力解析目录名；根目录或查询失败时返回空串，仅用于日志快照。
+func (s *fileService) folderName(userID uint, folderID uint) string {
+	if folderID == 0 {
+		return ""
+	}
+	folder, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
+	if err != nil {
+		return ""
+	}
+	return folder.Name
+}
+
+// recordOperation 以快照形式落一条操作日志；日志写入失败仅记错误，绝不影响主流程。
+// 写入成功后触发保留上限清理，清理失败同样仅记错误。
+func (s *fileService) recordOperation(userID uint, action model.OperationLogAction, targetType model.OperationLogTargetType, targetID uint, targetName string, folderID uint, detail map[string]any) {
+	if s.OperationLogRepository == nil {
+		return
+	}
+	detailJSON := "{}"
+	if len(detail) > 0 {
+		if payload, err := json.Marshal(detail); err == nil {
+			detailJSON = string(payload)
+		}
+	}
+	entry := &model.OperationLogModel{
+		UserID:     userID,
+		Action:     action,
+		TargetType: targetType,
+		TargetID:   targetID,
+		TargetName: targetName,
+		FolderName: s.folderName(userID, folderID),
+		Detail:     detailJSON,
+	}
+	if err := s.OperationLogRepository.CreateOperationLog(entry); err != nil {
+		log.Error().Err(err).Uint("user_id", userID).Str("action", string(action)).Msg("记录操作日志失败")
+		return
+	}
+	if _, err := s.OperationLogRepository.PruneOperationLogs(userID, operationLogKeepCount); err != nil {
+		log.Error().Err(err).Uint("user_id", userID).Msg("清理操作日志失败")
+	}
 }
 
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
@@ -359,6 +405,9 @@ func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadT
 		if err := os.MkdirAll(chunkDir, 0755); err != nil {
 			return nil, err
 		}
+	}
+	if instantFile != nil {
+		s.recordOperation(req.UserID, model.OperationLogActionUploadInstant, model.OperationLogTargetTypeFile, instantFile.ID, instantFile.Name, instantFile.FolderID, map[string]any{"size": instantFile.Size})
 	}
 	return req, nil
 }
@@ -628,6 +677,7 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUp
 	}
 
 	var fileID uint
+	fileCreated := false
 	err = s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
 		var lockedTask model.UploadTask
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -649,6 +699,7 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUp
 			return err
 		}
 		fileID = fileModel.ID
+		fileCreated = true
 		return tx.Model(&lockedTask).Updates(map[string]interface{}{
 			"status":                 model.UploadStatusCompleted,
 			"file_id":                fileID,
@@ -660,6 +711,9 @@ func (s *fileService) MergeUploadedChunks(userID uint, taskID uint) (*vo.MergeUp
 		return nil, err
 	}
 	mergeCompleted = true
+	if fileCreated {
+		s.recordOperation(userID, model.OperationLogActionUpload, model.OperationLogTargetTypeFile, fileID, task.FileName, task.FolderID, map[string]any{"size": task.FileSize})
+	}
 	return &vo.MergeUploadedChunksResp{Status: model.UploadStatusCompleted, FileID: &fileID}, nil
 }
 
@@ -695,11 +749,6 @@ func (s *fileService) GetDashboardOverview(userID uint, storageLimit uint64) (*d
 		fileStats = append(fileStats, stat)
 	}
 
-	recentActivities, err := s.FileRepository.GetRecentActivitiesByUserID(userID, dashboardRecentActivitySize)
-	if err != nil {
-		return nil, err
-	}
-
 	usedPercent := int(storageUsed * 100 / storageLimit)
 	if usedPercent > 100 {
 		usedPercent = 100
@@ -715,7 +764,6 @@ func (s *fileService) GetDashboardOverview(userID uint, storageLimit uint64) (*d
 		StorageLeft:        storageLeft,
 		StorageUsedPercent: usedPercent,
 		FileStats:          fileStats,
-		RecentActivities:   recentActivities,
 	}, nil
 }
 
@@ -735,6 +783,32 @@ func (s *fileService) GetListCountByFolderIDAndUserID(folderID uint, userID uint
 	return count, nil
 }
 
+// GetOperationLogs 查询当前用户的操作日志（按时间倒序分页，附带总数）
+func (s *fileService) GetOperationLogs(userID uint, page, pageSize int) (*vo.OperationLogListResp, error) {
+	logs, err := s.OperationLogRepository.GetOperationLogsByUserID(userID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]vo.OperationLogListItem, 0, len(logs))
+	for _, l := range logs {
+		items = append(items, vo.OperationLogListItem{
+			ID:         l.ID,
+			Action:     l.Action,
+			TargetType: l.TargetType,
+			TargetID:   l.TargetID,
+			TargetName: l.TargetName,
+			FolderName: l.FolderName,
+			Detail:     l.Detail,
+			CreatedAt:  l.CreatedAt,
+		})
+	}
+	total, err := s.OperationLogRepository.CountOperationLogsByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	return &vo.OperationLogListResp{List: items, Total: total}, nil
+}
+
 func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
 	cleanedName, err := utils.SanitizeFileName(name)
 	if err != nil {
@@ -749,7 +823,11 @@ func (s *fileService) MakeDirectory(folderID uint, name string, userID uint) (ui
 		}
 	}
 	id, err := s.FileRepository.MakeDirectory(folderID, cleanedName, userID)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	s.recordOperation(userID, model.OperationLogActionMkdir, model.OperationLogTargetTypeFolder, id, cleanedName, folderID, nil)
+	return id, nil
 }
 
 func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name string) error {
@@ -764,22 +842,36 @@ func (s *fileService) RenameByIDs(userID uint, fileID, folderID uint, name strin
 		return errors.New("missing rename target")
 	}
 	if fileID > 0 {
-		err = s.FileRepository.RenameFileByIDAndUserID(fileID, userID, cleanedName)
+		oldFile, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrFileNotFound
 			}
 			return fmt.Errorf("重命名文件失败: %w", err)
 		}
+		if err := s.FileRepository.RenameFileByIDAndUserID(fileID, userID, cleanedName); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("重命名文件失败: %w", err)
+		}
+		s.recordOperation(userID, model.OperationLogActionRename, model.OperationLogTargetTypeFile, fileID, cleanedName, oldFile.FolderID, map[string]any{"old_name": oldFile.Name})
 		return nil
 	}
-	err = s.FileRepository.RenameFolderByIDAndUserID(folderID, userID, cleanedName)
+	oldFolder, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrFolderNotFound
 		}
 		return fmt.Errorf("重命名文件夹失败: %w", err)
 	}
+	if err := s.FileRepository.RenameFolderByIDAndUserID(folderID, userID, cleanedName); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrFolderNotFound
+		}
+		return fmt.Errorf("重命名文件夹失败: %w", err)
+	}
+	s.recordOperation(userID, model.OperationLogActionRename, model.OperationLogTargetTypeFolder, folderID, cleanedName, oldFolder.ParentID, map[string]any{"old_name": oldFolder.Name})
 	return nil
 }
 
@@ -801,13 +893,23 @@ func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID ui
 	}
 
 	if fileID > 0 {
-		err := s.FileRepository.MoveFileByIDAndUserID(fileID, userID, targetFolderID)
+		movedFile, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("移动失败: %w", err)
+		}
+		if err := s.FileRepository.MoveFileByIDAndUserID(fileID, userID, targetFolderID); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrFileNotFound
 			}
 			return fmt.Errorf("移动文件失败: %w", err)
 		}
+		s.recordOperation(userID, model.OperationLogActionMove, model.OperationLogTargetTypeFile, fileID, movedFile.Name, targetFolderID, map[string]any{
+			"from": s.folderName(userID, movedFile.FolderID),
+			"to":   s.folderName(userID, targetFolderID),
+		})
 		return nil
 	}
 
@@ -845,6 +947,10 @@ func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID ui
 		}
 		return fmt.Errorf("移动文件夹失败: %w", err)
 	}
+	s.recordOperation(userID, model.OperationLogActionMove, model.OperationLogTargetTypeFolder, folderID, sourceFolder.Name, targetFolderID, map[string]any{
+		"from": s.folderName(userID, sourceFolder.ParentID),
+		"to":   s.folderName(userID, targetFolderID),
+	})
 	return nil
 }
 
@@ -857,17 +963,26 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 	}
 
 	if fileID > 0 {
-		err := s.FileRepository.DeleteFileByIDAndUserID(fileID, userID)
+		targetFile, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrFileNotFound
 			}
 			return fmt.Errorf("删除文件失败: %w", err)
 		}
+		if err := s.FileRepository.DeleteFileByIDAndUserID(fileID, userID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrFileNotFound
+			}
+			return fmt.Errorf("删除文件失败: %w", err)
+		}
+		// 实体已删除，日志只依赖事前捕获的名称/目录快照
+		s.recordOperation(userID, model.OperationLogActionDelete, model.OperationLogTargetTypeFile, fileID, targetFile.Name, targetFile.FolderID, map[string]any{"size": targetFile.Size})
 		return nil
 	}
 
-	return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+	var deletedRoot *model.FolderModel
+	err := s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
 		txRepo := &repository.FileRepository{DB: tx}
 
 		rootFolder, err := txRepo.GetFolderByFolderIDAndUserID(folderID, userID)
@@ -877,6 +992,7 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 			}
 			return fmt.Errorf("删除文件夹失败: %w", err)
 		}
+		deletedRoot = rootFolder
 		folderIDs := []uint{rootFolder.ID}
 		queue := []uint{rootFolder.ID}
 		for len(queue) > 0 {
@@ -897,6 +1013,13 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 		}
 		return txRepo.DeleteFoldersByIDsAndUserID(folderIDs, userID)
 	})
+	if err != nil {
+		return err
+	}
+	if deletedRoot != nil {
+		s.recordOperation(userID, model.OperationLogActionDelete, model.OperationLogTargetTypeFolder, deletedRoot.ID, deletedRoot.Name, deletedRoot.ParentID, nil)
+	}
+	return nil
 }
 
 func (s *fileService) CreatePickUpCode(userID uint, code *model.PickUpCodeModel) (uint, error) {
@@ -906,32 +1029,47 @@ func (s *fileService) CreatePickUpCode(userID uint, code *model.PickUpCodeModel)
 	if code.MaxDownload == 0 || time.Now().After(code.ExpireTime) {
 		return 0, ErrPickupCodeExpired
 	}
+	var targetFile *model.FileModel
+	var targetFolder *model.FolderModel
 	switch code.Type {
 	case model.PickUpTargetTypeFile:
 		if code.FileID == nil || code.FolderID != nil {
 			return 0, ErrPickupTargetNotFound
 		}
-		if _, err := s.FileRepository.GetFileByFileIDAndUserID(*code.FileID, userID); err != nil {
+		file, err := s.FileRepository.GetFileByFileIDAndUserID(*code.FileID, userID)
+		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return 0, ErrPickupTargetNotFound
 			}
 			return 0, err
 		}
+		targetFile = file
 	case model.PickUpTargetTypeFolder:
 		if code.FolderID == nil || code.FileID != nil {
 			return 0, ErrPickupTargetNotFound
 		}
-		if _, err := s.FileRepository.GetFolderByFolderIDAndUserID(*code.FolderID, userID); err != nil {
+		folder, err := s.FileRepository.GetFolderByFolderIDAndUserID(*code.FolderID, userID)
+		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return 0, ErrPickupTargetNotFound
 			}
 			return 0, err
 		}
+		targetFolder = folder
 	default:
 		return 0, ErrPickupTargetNotFound
 	}
 	id, err := s.FileRepository.CreatePickUpCode(code)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case targetFile != nil:
+		s.recordOperation(userID, model.OperationLogActionPickupCodeCreate, model.OperationLogTargetTypeFile, *code.FileID, targetFile.Name, targetFile.FolderID, map[string]any{"code": code.Code})
+	case targetFolder != nil:
+		s.recordOperation(userID, model.OperationLogActionPickupCodeCreate, model.OperationLogTargetTypeFolder, *code.FolderID, targetFolder.Name, targetFolder.ParentID, map[string]any{"code": code.Code})
+	}
+	return id, nil
 }
 
 func (s *fileService) GetPickUpCodeListByUserID(userID uint, page, pageSize int) ([]vo.PickUpCodeListItem, error) {
@@ -1027,18 +1165,45 @@ func (s *fileService) GetPickUpCodeListCountByUserID(userID uint) (int64, error)
 }
 
 func (s *fileService) DeletePickUpCodeByID(userID uint, codeID uint) error {
-	err := s.FileRepository.DeletePickUpCodeByIDAndUserID(codeID, userID)
+	code, err := s.FileRepository.GetPickUpCodeByIDAndUserID(codeID, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrPickupTargetNotFound
 		}
 		return fmt.Errorf("删除取件码失败: %w", err)
 	}
+	err = s.FileRepository.DeletePickUpCodeByIDAndUserID(codeID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPickupTargetNotFound
+		}
+		return fmt.Errorf("删除取件码失败: %w", err)
+	}
+	// 目标可能已被删除，名称尽力解析；取件码本身已在 detail 中留存
+	targetType := model.OperationLogTargetTypeFolder
+	var targetID uint
+	var targetName string
+	var folderID uint
+	if code.FileID != nil {
+		targetType = model.OperationLogTargetTypeFile
+		targetID = *code.FileID
+		if target, err := s.FileRepository.GetFileByFileIDAndUserID(*code.FileID, userID); err == nil {
+			targetName = target.Name
+			folderID = target.FolderID
+		}
+	} else if code.FolderID != nil {
+		targetID = *code.FolderID
+		if target, err := s.FileRepository.GetFolderByFolderIDAndUserID(*code.FolderID, userID); err == nil {
+			targetName = target.Name
+			folderID = target.ParentID
+		}
+	}
+	s.recordOperation(userID, model.OperationLogActionPickupCodeDelete, targetType, targetID, targetName, folderID, map[string]any{"code": code.Code})
 	return nil
 }
 
 func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, error) {
-	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", ErrFileNotFound
@@ -1047,6 +1212,7 @@ func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, e
 	}
 	existing, err := s.FileRepository.GetPublicShareLinkByFileIDAndUserID(fileID, userID)
 	if err == nil && existing != nil {
+		// 已存在分享链接，直接复用，不产生新的分享行为
 		return existing.Token, nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1064,6 +1230,7 @@ func (s *fileService) CreatePublicShareLink(fileID uint, userID uint) (string, e
 	if err := s.FileRepository.CreatePublicShareLink(link); err != nil {
 		return "", err
 	}
+	s.recordOperation(userID, model.OperationLogActionShareLinkCreate, model.OperationLogTargetTypeFile, fileID, fileModel.Name, fileModel.FolderID, nil)
 	return token, nil
 }
 
@@ -1086,7 +1253,7 @@ func (s *fileService) GetPublicShareLink(fileID uint, userID uint) (string, erro
 }
 
 func (s *fileService) DeletePublicShareLink(fileID uint, userID uint) error {
-	_, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
+	fileModel, err := s.FileRepository.GetFileByFileIDAndUserID(fileID, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrFileNotFound
@@ -1100,6 +1267,7 @@ func (s *fileService) DeletePublicShareLink(fileID uint, userID uint) error {
 		}
 		return err
 	}
+	s.recordOperation(userID, model.OperationLogActionShareLinkDelete, model.OperationLogTargetTypeFile, fileID, fileModel.Name, fileModel.FolderID, nil)
 	return nil
 }
 
@@ -1151,7 +1319,11 @@ func (s *fileService) PreviewFileByID(fileID uint, userID uint, writer io.Writer
 	if setMeta != nil {
 		setMeta(fileModel.Name, contentType)
 	}
-	return s.StreamSingleFile(filePath, writer)
+	if err := s.StreamSingleFile(filePath, writer); err != nil {
+		return err
+	}
+	s.recordOperation(userID, model.OperationLogActionPreview, model.OperationLogTargetTypeFile, fileID, fileModel.Name, fileModel.FolderID, nil)
+	return nil
 }
 
 func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer io.Writer, setMeta func(fileName, contentType string)) error {
@@ -1181,7 +1353,11 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 		if setMeta != nil {
 			setMeta(fileModel.Name, contentType)
 		}
-		return s.StreamSingleFile(filePath, writer)
+		if err := s.StreamSingleFile(filePath, writer); err != nil {
+			return err
+		}
+		s.recordOperation(userID, model.OperationLogActionDownload, model.OperationLogTargetTypeFile, fileID, fileModel.Name, fileModel.FolderID, nil)
+		return nil
 	}
 
 	folderModel, err := s.FileRepository.GetFolderByFolderIDAndUserID(folderID, userID)
@@ -1194,7 +1370,11 @@ func (s *fileService) DownloadByIDs(userID uint, fileID, folderID uint, writer i
 	if setMeta != nil {
 		setMeta(folderModel.Name+".zip", "application/zip")
 	}
-	return s.StreamFolderAsZip(userID, folderModel.ID, writer)
+	if err := s.StreamFolderAsZip(userID, folderModel.ID, writer); err != nil {
+		return err
+	}
+	s.recordOperation(userID, model.OperationLogActionDownload, model.OperationLogTargetTypeFolder, folderModel.ID, folderModel.Name, folderModel.ParentID, map[string]any{"packaged": true})
+	return nil
 }
 
 func generateRandomHex(byteCount int) (string, error) {

@@ -101,20 +101,10 @@ export interface DashboardFileStatItem {
   size: number
 }
 
-export interface DashboardRecentActivityItem {
-  id: number
-  name: string
-  folder_name: string
-  file_type: string
-  size: number
-  updated_at: string
-}
-
 export interface DashboardOverviewResponse {
   storage_used: number
   storage_total: number
   storage_left: number
   storage_used_percent: number
   file_stats: DashboardFileStatItem[]
-  recent_activities: DashboardRecentActivityItem[]
 }

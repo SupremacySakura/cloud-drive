@@ -9,6 +9,7 @@ data/*
 .playwright-mcp/*
 .env
 .sisyphus/evidence/
+.gocache/
 
 # Logs
 *.log

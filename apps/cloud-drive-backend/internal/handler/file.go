@@ -52,6 +52,7 @@ func (h *FileHandler) Register(r *gin.RouterGroup) {
 	r.GET("/dashboard/overview", middleware.AuthMiddleware(), h.GetDashboardOverview)
 	r.GET("/list", middleware.AuthMiddleware(), h.GetListByFolderIDAndUserID)
 	r.GET("/list/count", middleware.AuthMiddleware(), h.GetListCountByFolderIDAndUserID)
+	r.GET("/logs", middleware.AuthMiddleware(), h.GetOperationLogs)
 	r.GET("/preview", middleware.AuthMiddleware(), h.PreviewFileByID)
 	r.GET("/download", middleware.AuthMiddleware(), h.DownloadFileByID)
 	r.POST("/share/link", middleware.AuthMiddleware(), h.CreatePublicShareLink)
@@ -364,6 +365,38 @@ func (h *FileHandler) GetListCountByFolderIDAndUserID(c *gin.Context) {
 		return
 	}
 	response.Success(c, count)
+}
+
+// GetOperationLogs godoc
+// @Summary 获取操作日志
+// @Description 分页获取当前用户的操作日志（按时间倒序，目标名称/目录为操作时的快照）
+// @Tags file
+// @Accept json
+// @Produce json
+// @Param page query int true "页码" default(1)
+// @Param page_size query int true "每页数量" default(20)
+// @Success 200 {object} response.Response{data=vo.OperationLogListResp} "成功返回（code=0,data=操作日志列表及总数）"
+// @Failure 400 {object} response.Response "参数错误"
+// @Failure 401 {object} map[string]string "未授权（缺少/无效 Authorization）"
+// @Security ApiKeyAuth
+// @Router /file/logs [get]
+func (h *FileHandler) GetOperationLogs(c *gin.Context) {
+	var req dto.GetOperationLogsReq
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.Fail(c, response.CodeInvalidParam)
+		return
+	}
+	userID, ok := getCurrentUserID(c)
+	if !ok {
+		response.Fail(c, response.CodeUnauthorized)
+		return
+	}
+	resp, err := h.FileService.GetOperationLogs(userID, req.Page, req.PageSize)
+	if err != nil {
+		response.Fail(c, response.CodeServerError)
+		return
+	}
+	response.Success(c, resp)
 }
 
 // PreviewFileByID godoc

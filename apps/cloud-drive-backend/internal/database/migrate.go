@@ -86,6 +86,7 @@ func Migrate() error {
 		&model.FolderModel{},
 		&model.PickUpCodeModel{},
 		&model.PublicShareLinkModel{},
+		&model.OperationLogModel{},
 	); err != nil {
 		return err
 	}

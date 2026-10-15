@@ -2,10 +2,12 @@
 import { ref, computed, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import { useUserStore } from '../stores/user'
+import { useOperationLogs } from '../composables/useOperationLogs'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
 import { getDashboardOverview } from '../services/apis/file'
-import type { DashboardFileStatItem, DashboardRecentActivityItem } from '../services/types/file'
-import { formatBytes, sanitizeFileName } from '../utils/file'
+import type { DashboardFileStatItem } from '../services/types/file'
+import { formatBytes } from '../utils/file'
+import { describeOperationLog } from '../utils/operationLog'
 
 const userStore = useUserStore()
 
@@ -18,22 +20,23 @@ type FileStatCard = {
   colorClass: string
 }
 
-type RecentActivityCard = {
-  id: number
-  name: string
-  desc: string
-  highlight: string
-  time: string
-  size: string
-  icon: string
-  colorClass: string
-}
-
 const storageUsedPercent = ref(0)
 const storageUsedBytes = ref(0)
 const storageTotalBytes = ref(0)
 const storageLeftBytes = ref(0)
 const isLoading = ref(false)
+
+// 操作日志 feed：数据源与分页由 composable 负责，页面只做展示编排
+const {
+  logs: operationLogs,
+  total: operationLogTotal,
+  isLoading: isOperationLogsLoading,
+  isLoadingMore,
+  hasMore,
+  load: loadOperationLogs,
+  loadMore: loadMoreOperationLogs,
+  reset: resetOperationLogs,
+} = useOperationLogs()
 
 const storageUsedStr = computed(() => formatBytes(storageUsedBytes.value))
 const storageTotalStr = computed(() => formatBytes(storageTotalBytes.value))
@@ -43,7 +46,6 @@ const storageLeftStr = computed(() => formatBytes(storageLeftBytes.value))
 const isStorageWarning = computed(() => storageUsedPercent.value >= 90)
 
 const fileStats = ref<FileStatCard[]>([])
-const recentActivities = ref<RecentActivityCard[]>([])
 
 const fileTypeMeta: Record<string, { title: string; icon: string; colorClass: string }> = {
   image: {
@@ -91,11 +93,6 @@ const mapFileStats = (stats: DashboardFileStatItem[]): FileStatCard[] => {
   })
 }
 
-const mapActivityMeta = (fileType: string) => {
-  const meta = fileTypeMeta[fileType] ?? fileTypeMeta.other
-  return { icon: meta.icon, colorClass: meta.colorClass }
-}
-
 const formatRelativeTime = (value: string) => {
   const timestamp = new Date(value).getTime()
   if (Number.isNaN(timestamp)) return '-'
@@ -109,17 +106,14 @@ const formatRelativeTime = (value: string) => {
   return `${Math.floor(diff / day)} 天前`
 }
 
-const mapRecentActivities = (activities: DashboardRecentActivityItem[]): RecentActivityCard[] => {
-  return activities.map(item => ({
-    id: item.id,
-    name: sanitizeFileName(item.name),
-    desc: '位于',
-    highlight: sanitizeFileName(item.folder_name || '根目录'),
-    time: formatRelativeTime(item.updated_at),
-    size: formatBytes(item.size),
-    ...mapActivityMeta(item.file_type),
-  }))
-}
+// 操作日志行卡片：展示语义由 describeOperationLog 纯函数决定
+const operationLogCards = computed(() =>
+  operationLogs.value.map(log => ({
+    id: log.id,
+    time: formatRelativeTime(log.created_at),
+    ...describeOperationLog(log),
+  })),
+)
 
 const resetDashboardData = () => {
   storageUsedPercent.value = 0
@@ -127,7 +121,7 @@ const resetDashboardData = () => {
   storageTotalBytes.value = 0
   storageLeftBytes.value = 0
   fileStats.value = mapFileStats([])
-  recentActivities.value = []
+  resetOperationLogs()
 }
 
 const loadDashboardData = async () => {
@@ -139,7 +133,7 @@ const loadDashboardData = async () => {
     storageTotalBytes.value = data.storage_total
     storageLeftBytes.value = data.storage_left
     fileStats.value = mapFileStats(data.file_stats ?? [])
-    recentActivities.value = mapRecentActivities(data.recent_activities ?? [])
+    void loadOperationLogs()
   } catch (error) {
     resetDashboardData()
     console.error('获取仪表盘数据失败', error)
@@ -276,17 +270,17 @@ watch(
         </div>
       </div>
 
-      <!-- 最近活动：iCloud Drive 风格 48px 行 -->
+      <!-- 操作日志：iCloud Drive 风格 48px 行 -->
       <div class="overflow-hidden rounded-md bg-surface shadow-card">
         <div class="flex items-center justify-between border-b border-hairline p-6">
-          <h3 class="text-title-3">最近活动</h3>
+          <h3 class="text-title-3">操作日志</h3>
           <span class="text-subhead text-label-secondary">{{
-            isLoading ? '加载中...' : `${recentActivities.length} 条`
+            isOperationLogsLoading ? '加载中...' : `共 ${operationLogTotal} 条`
           }}</span>
         </div>
 
         <!-- 加载骨架 -->
-        <div v-if="isLoading" class="space-y-3.5 p-6">
+        <div v-if="isOperationLogsLoading" class="space-y-3.5 p-6">
           <div v-for="n in 2" :key="n" class="flex animate-pulse items-center gap-3">
             <div class="h-8 w-8 flex-none rounded-sm bg-surface-secondary"></div>
             <div class="flex-1 space-y-1.5">
@@ -298,39 +292,51 @@ watch(
 
         <template v-else>
           <p
-            v-if="recentActivities.length === 0"
+            v-if="operationLogCards.length === 0"
             class="py-8 text-center text-subhead text-label-secondary"
           >
-            暂无最近活动
+            暂无操作记录
           </p>
 
-          <template v-for="(activity, index) in recentActivities" :key="activity.id">
+          <template v-for="(card, index) in operationLogCards" :key="card.id">
             <div
               class="flex min-h-12 items-center gap-3 px-6 transition-colors duration-150 hover:bg-surface-secondary"
             >
               <div
                 class="flex h-8 w-8 flex-none items-center justify-center rounded-sm"
-                :class="activity.colorClass"
+                :class="card.colorClass"
               >
-                <Icon :icon="activity.icon" class="text-[16px]" />
+                <Icon :icon="card.icon" class="text-[16px]" />
               </div>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-[15px] font-semibold leading-[22px]">
-                  {{ activity.name }}
+                  {{ card.title }}
                 </p>
                 <p class="truncate text-subhead text-label-secondary">
-                  {{ activity.desc }} <span class="text-primary">{{ activity.highlight }}</span>
+                  {{ card.subtitle
+                  }}<span v-if="card.highlight" class="text-primary"
+                    >{{ ' ' }}{{ card.highlight }}</span
+                  >
                 </p>
               </div>
               <div class="flex-none text-right">
-                <p class="text-caption text-label-tertiary">{{ activity.time }}</p>
-                <p class="text-caption mt-0.5 font-medium text-label-secondary">
-                  {{ activity.size }}
-                </p>
+                <p class="text-caption text-label-tertiary">{{ card.time }}</p>
               </div>
             </div>
-            <div v-if="index < recentActivities.length - 1" class="ml-17 h-px bg-hairline" />
+            <div v-if="index < operationLogCards.length - 1" class="ml-17 h-px bg-hairline" />
           </template>
+
+          <!-- 加载更多 -->
+          <div v-if="hasMore" class="border-t border-hairline px-6 py-3">
+            <button
+              type="button"
+              class="w-full rounded-sm py-2 text-subhead font-medium text-primary transition-colors duration-150 hover:bg-surface-secondary disabled:opacity-50"
+              :disabled="isLoadingMore"
+              @click="loadMoreOperationLogs"
+            >
+              {{ isLoadingMore ? '加载中…' : '加载更多' }}
+            </button>
+          </div>
         </template>
       </div>
     </main>

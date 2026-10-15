@@ -392,6 +392,45 @@ func TestFileRepository_GetPickUpCodeByCode(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Test GetPickUpCodeByIDAndUserID
+func TestFileRepository_GetPickUpCodeByIDAndUserID(t *testing.T) {
+	t.Run("returns code when owned by user", func(t *testing.T) {
+		db, mock, cleanup := setupMockDB(t)
+		defer cleanup()
+
+		repo := NewFileRepository(db)
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models`")).
+			WithArgs(uint(11), uint(7), 1).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "code", "user_id", "type", "status"}).
+				AddRow(11, "ABC123", 7, model.PickUpTargetTypeFile, model.PickUpCodeStatusActive))
+
+		code, err := repo.GetPickUpCodeByIDAndUserID(11, 7)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, code)
+		assert.Equal(t, "ABC123", code.Code)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("returns ErrRecordNotFound when missing", func(t *testing.T) {
+		db, mock, cleanup := setupMockDB(t)
+		defer cleanup()
+
+		repo := NewFileRepository(db)
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `pick_up_code_models`")).
+			WithArgs(uint(11), uint(7), 1).
+			WillReturnError(gorm.ErrRecordNotFound)
+
+		code, err := repo.GetPickUpCodeByIDAndUserID(11, 7)
+
+		assert.Nil(t, code)
+		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 // Test GetPickUpCodeListCountByUserID
 func TestFileRepository_GetPickUpCodeListCountByUserID(t *testing.T) {
 	db, mock, cleanup := setupMockDB(t)

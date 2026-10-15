@@ -201,28 +201,6 @@ func (r *FileRepository) GetFileStatsByUserID(userID uint) ([]dto.DashboardFileS
 	return list, nil
 }
 
-func (r *FileRepository) GetRecentActivitiesByUserID(userID uint, limit int) ([]dto.DashboardRecentActivityItem, error) {
-	var list []dto.DashboardRecentActivityItem
-	err := r.DB.Raw(`
-	SELECT
-		f.id,
-		f.name,
-		COALESCE(fd.name, '根目录') AS folder_name,
-		f.type AS file_type,
-		f.size,
-		f.updated_at
-	FROM file_models f
-	LEFT JOIN folder_models fd ON f.folder_id = fd.id AND fd.deleted_at IS NULL
-	WHERE f.user_id = ? AND f.deleted_at IS NULL
-	ORDER BY f.updated_at DESC
-	LIMIT ?
-`, userID, limit).Scan(&list).Error
-	if err != nil {
-		return nil, err
-	}
-	return list, nil
-}
-
 func (r *FileRepository) MakeDirectory(folderID uint, name string, userID uint) (uint, error) {
 	folder := &model.FolderModel{
 		ParentID: folderID,
@@ -384,6 +362,14 @@ func (r *FileRepository) ExpireOutdatedPickUpCodes(userID uint, now time.Time) (
 func (r *FileRepository) GetPickUpCodeByCode(code string) (*model.PickUpCodeModel, error) {
 	var pickupCode model.PickUpCodeModel
 	if err := r.DB.Where("code = ?", code).First(&pickupCode).Error; err != nil {
+		return nil, err
+	}
+	return &pickupCode, nil
+}
+
+func (r *FileRepository) GetPickUpCodeByIDAndUserID(codeID uint, userID uint) (*model.PickUpCodeModel, error) {
+	var pickupCode model.PickUpCodeModel
+	if err := r.DB.Where("id = ? AND user_id = ?", codeID, userID).First(&pickupCode).Error; err != nil {
 		return nil, err
 	}
 	return &pickupCode, nil

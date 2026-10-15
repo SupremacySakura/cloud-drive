@@ -821,6 +821,79 @@ const docTemplate = `{
                 }
             }
         },
+        "/file/logs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "分页获取当前用户的操作日志（按时间倒序，目标名称/目录为操作时的快照）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "file"
+                ],
+                "summary": "获取操作日志",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "每页数量",
+                        "name": "page_size",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成功返回（code=0,data=操作日志列表及总数）",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/vo.OperationLogListResp"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权（缺少/无效 Authorization）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/file/merge": {
             "post": {
                 "security": [
@@ -1494,12 +1567,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/dto.DashboardFileStatItem"
                     }
                 },
-                "recent_activities": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/dto.DashboardRecentActivityItem"
-                    }
-                },
                 "storage_left": {
                     "type": "integer"
                 },
@@ -1511,29 +1578,6 @@ const docTemplate = `{
                 },
                 "storage_used_percent": {
                     "type": "integer"
-                }
-            }
-        },
-        "dto.DashboardRecentActivityItem": {
-            "type": "object",
-            "properties": {
-                "file_type": {
-                    "type": "string"
-                },
-                "folder_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "updated_at": {
-                    "type": "string"
                 }
             }
         },
@@ -1694,6 +1738,76 @@ const docTemplate = `{
                 }
             }
         },
+        "model.OperationLogAction": {
+            "type": "string",
+            "enum": [
+                "upload",
+                "upload_instant",
+                "mkdir",
+                "rename",
+                "move",
+                "delete",
+                "download",
+                "preview",
+                "share_link_create",
+                "share_link_delete",
+                "pickup_code_create",
+                "pickup_code_delete"
+            ],
+            "x-enum-comments": {
+                "OperationLogActionDelete": "删除",
+                "OperationLogActionDownload": "下载",
+                "OperationLogActionMkdir": "新建文件夹",
+                "OperationLogActionMove": "移动",
+                "OperationLogActionPickupCodeCreate": "创建取件码",
+                "OperationLogActionPickupCodeDelete": "删除取件码",
+                "OperationLogActionPreview": "预览",
+                "OperationLogActionRename": "重命名",
+                "OperationLogActionShareLinkCreate": "创建分享链接",
+                "OperationLogActionShareLinkDelete": "删除分享链接",
+                "OperationLogActionUpload": "分片上传完成",
+                "OperationLogActionUploadInstant": "秒传（命中已有文件）"
+            },
+            "x-enum-descriptions": [
+                "分片上传完成",
+                "秒传（命中已有文件）",
+                "新建文件夹",
+                "重命名",
+                "移动",
+                "删除",
+                "下载",
+                "预览",
+                "创建分享链接",
+                "删除分享链接",
+                "创建取件码",
+                "删除取件码"
+            ],
+            "x-enum-varnames": [
+                "OperationLogActionUpload",
+                "OperationLogActionUploadInstant",
+                "OperationLogActionMkdir",
+                "OperationLogActionRename",
+                "OperationLogActionMove",
+                "OperationLogActionDelete",
+                "OperationLogActionDownload",
+                "OperationLogActionPreview",
+                "OperationLogActionShareLinkCreate",
+                "OperationLogActionShareLinkDelete",
+                "OperationLogActionPickupCodeCreate",
+                "OperationLogActionPickupCodeDelete"
+            ]
+        },
+        "model.OperationLogTargetType": {
+            "type": "string",
+            "enum": [
+                "file",
+                "folder"
+            ],
+            "x-enum-varnames": [
+                "OperationLogTargetTypeFile",
+                "OperationLogTargetTypeFolder"
+            ]
+        },
         "model.PickUpCodeStatus": {
             "type": "string",
             "enum": [
@@ -1796,6 +1910,49 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/model.UploadStatus"
+                }
+            }
+        },
+        "vo.OperationLogListItem": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "$ref": "#/definitions/model.OperationLogAction"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "folder_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "target_id": {
+                    "type": "integer"
+                },
+                "target_name": {
+                    "type": "string"
+                },
+                "target_type": {
+                    "$ref": "#/definitions/model.OperationLogTargetType"
+                }
+            }
+        },
+        "vo.OperationLogListResp": {
+            "type": "object",
+            "properties": {
+                "list": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/vo.OperationLogListItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
