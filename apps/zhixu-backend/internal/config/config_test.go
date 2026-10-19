@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,23 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelEncryptionKeyConfiguration(t *testing.T) {
+	for _, key := range []string{"", base64.StdEncoding.EncodeToString(make([]byte, 32))} {
+		cfg := Config{JWTSecret: "test", DBUser: "root", DBHost: "localhost", DBPort: "3306", DBName: "zhixu", ModelConfigEncryptionKey: key}
+		require.NoError(t, cfg.validate())
+	}
+	cfg := Config{ModelConfigEncryptionKey: "invalid-secret"}
+	err := cfg.validate()
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "invalid-secret")
+	v := viper.New()
+	bindEnvVariables(v)
+	t.Setenv("MODEL_CONFIG_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	var loaded Config
+	require.NoError(t, v.Unmarshal(&loaded))
+	require.NotEmpty(t, loaded.ModelConfigEncryptionKey)
+}
 
 func TestLoadEnvFileUsesExplicitDevelopmentFile(t *testing.T) {
 	dir := t.TempDir()

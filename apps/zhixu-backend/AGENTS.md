@@ -10,6 +10,8 @@
 
 ## 后端核心文档
 - 后端结构: [docs/backend-structure.md](../../docs/backend-structure.md)
+- Markdown 入库: [docs/markdown-knowledge-backend.md](../../docs/markdown-knowledge-backend.md)
+- 模型配置: [docs/model-settings-backend.md](../../docs/model-settings-backend.md)
 - 技术栈: [docs/brain/tech-stack.md](../../docs/brain/tech-stack.md)
 - 项目约束: [docs/brain/constraints.md](../../docs/brain/constraints.md)
 

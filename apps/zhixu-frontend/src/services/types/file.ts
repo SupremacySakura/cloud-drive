@@ -60,6 +60,7 @@ export type MoveFileRequest = {
 }
 
 export type DeleteFileRequest = {
+  delete_knowledge?: boolean
   file_id: number
   folder_id: number
 }

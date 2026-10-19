@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import FileManagement from '../FileManagement.vue'
 import { useUserStore } from '../../stores/user'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import {
   getListByFolderIDAndUserID,
   getListCountByFolderIDAndUserID,
@@ -60,7 +61,13 @@ describe('FileManagement', () => {
     useUserStore(pinia).setToken('test-token')
     const wrapper = mount(FileManagement, {
       global: {
-        plugins: [pinia],
+        plugins: [
+          pinia,
+          createRouter({
+            history: createMemoryHistory(),
+            routes: [{ path: '/', component: { template: '<div />' } }],
+          }),
+        ],
         stubs: { Icon: true },
       },
     })

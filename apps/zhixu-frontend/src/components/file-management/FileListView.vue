@@ -5,6 +5,8 @@ import type { FileDisplayItem, FileItemKey } from '../../types/file'
 import { formatBytes } from '../../utils/file'
 import { ownerInitials } from '../../utils/file-management'
 import FileEmptyState from './FileEmptyState.vue'
+import FileKnowledgeAction from '../knowledge/FileKnowledgeAction.vue'
+import type { KnowledgeItem } from '../../services/apis/knowledge'
 
 const props = withDefaults(
   defineProps<{
@@ -15,6 +17,7 @@ const props = withDefaults(
     allSelected: boolean
     query?: string
     ownerName?: string
+    knowledgeRevision?: number
   }>(),
   {
     query: '',
@@ -29,6 +32,7 @@ const emit = defineEmits<{
   'toggle-select': [file: FileDisplayItem, checked: boolean]
   'open-menu': [file: FileDisplayItem, anchor: HTMLElement]
   upload: []
+  knowledge: [file: FileDisplayItem, item: KnowledgeItem | null]
 }>()
 
 const ownerBadge = computed(() => ownerInitials(props.ownerName))
@@ -181,7 +185,14 @@ const rowGridClass =
           >
             <Icon class="text-[20px]" :icon="file.icon" />
           </span>
-          <span class="truncate text-[15px] font-semibold text-label">{{ file.name }}</span>
+          <div class="min-w-0 py-2">
+            <p class="truncate text-[15px] font-semibold text-label">{{ file.name }}</p>
+            <FileKnowledgeAction
+              :file="file"
+              :revision="knowledgeRevision"
+              @action="(target, item) => emit('knowledge', target, item)"
+            />
+          </div>
           <span class="truncate text-subhead text-label-secondary">{{ file.typeLabel }}</span>
           <span class="truncate text-subhead text-label-secondary">
             {{ file.type === 'folder' ? '-' : formatBytes(file.size) }}

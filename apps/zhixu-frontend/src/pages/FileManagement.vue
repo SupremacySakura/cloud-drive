@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AddKnowledgeDialog from '../components/knowledge/AddKnowledgeDialog.vue'
+import KnowledgeTaskPanel from '../components/knowledge/KnowledgeTaskPanel.vue'
+import { useKnowledgeImport } from '../composables/useKnowledgeImport'
+import type { KnowledgeItem } from '../services/apis/knowledge'
+import type { FileDisplayItem } from '../types/file'
 import { Icon } from '@iconify/vue'
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import LoginRequiredPlaceholder from '../components/bussiness/LoginRequiredPlaceholder.vue'
@@ -42,6 +48,32 @@ const userStore = useUserStore()
 const headerRef = ref<InstanceType<typeof FileManagerHeader> | null>(null)
 
 const { toastMessage, toastType, showToast, displayToast } = useToast()
+const route = useRoute()
+const router = useRouter()
+const {
+  target: knowledgeTarget,
+  title: knowledgeTitle,
+  error: knowledgeError,
+  busy: knowledgeBusy,
+  item: knowledgeItem,
+  panelOpen: knowledgePanelOpen,
+  panelError: knowledgePanelError,
+  revision: knowledgeRevision,
+  open: openKnowledge,
+  submit: submitKnowledge,
+  track: trackKnowledge,
+  retry: retryKnowledge,
+  poll: pollKnowledge,
+} = useKnowledgeImport(displayToast)
+function handleKnowledge(file: FileDisplayItem, item: KnowledgeItem | null) {
+  closeFileMenu()
+  if (item?.status === 'ready') {
+    void router.push(`/home/knowledge/${item.id}`)
+    return
+  }
+  if (item) trackKnowledge(item)
+  else openKnowledge(file)
+}
 
 const {
   viewMode,
@@ -111,6 +143,7 @@ const {
   selectMoveTargetCurrent,
   handleMove,
   isDeleteConfirmModalOpen,
+  deleteRelatedKnowledge,
   deleteConfirmTarget,
   deletingMenuTargetId,
   handleDeleteFromMenu,
@@ -236,7 +269,17 @@ const closeAndClearUploadPanel = () => {
 }
 
 onMounted(() => {
-  if (userStore.isLoggedIn) void fetchFolder(0)
+  if (userStore.isLoggedIn) {
+    const folder = Number(route?.query.folder || 0)
+    if (Number.isSafeInteger(folder) && folder > 0) {
+      currentFolderId.value = folder
+      breadcrumbs.value = [
+        { id: 0, name: 'root' },
+        { id: folder, name: String(route?.query.folder_name || '来源目录') },
+      ]
+    }
+    void fetchFolder(currentFolderId.value)
+  }
 })
 </script>
 
@@ -279,6 +322,12 @@ onMounted(() => {
             @select-current-page="selectCurrentPage"
             @clear-selection="clearSelection"
           />
+          <div
+            class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-primary-tint px-4 py-3 text-subhead text-primary-pressed"
+          >
+            <p>支持 .md / .markdown 加入知识库，原文件保持不变。</p>
+            <RouterLink to="/home/knowledge" class="knowledge-text-action">打开知识库 →</RouterLink>
+          </div>
 
           <FileListView
             v-if="viewMode === 'list'"
@@ -288,6 +337,8 @@ onMounted(() => {
             :selected-ids="selectedIds"
             :all-selected="allSelected"
             :query="emptyStateQuery"
+            :knowledge-revision="knowledgeRevision"
+            @knowledge="handleKnowledge"
             @go-parent="goToParentFolder"
             @open-item="onRowClick"
             @toggle-all="toggleAll"
@@ -315,6 +366,8 @@ onMounted(() => {
             :has-parent-folder="hasParentFolder"
             :selected-ids="selectedIds"
             :query="emptyStateQuery"
+            :knowledge-revision="knowledgeRevision"
+            @knowledge="handleKnowledge"
             @go-parent="goToParentFolder"
             @open-item="onRowClick"
             @toggle-select="toggleOne"
@@ -336,6 +389,25 @@ onMounted(() => {
             </template>
           </FileGridView>
         </div>
+
+        <AddKnowledgeDialog
+          v-if="knowledgeTarget"
+          :file="knowledgeTarget"
+          v-model:title="knowledgeTitle"
+          :busy="knowledgeBusy"
+          :error="knowledgeError"
+          @close="knowledgeTarget = null"
+          @submit="submitKnowledge"
+        />
+        <KnowledgeTaskPanel
+          :item="knowledgeItem"
+          :open="knowledgePanelOpen"
+          :error="knowledgePanelError"
+          :busy="knowledgeBusy"
+          @close="knowledgePanelOpen = false"
+          @retry="retryKnowledge"
+          @refresh="pollKnowledge"
+        />
 
         <FileNameDialog
           v-if="isCreateFolderModalOpen"
@@ -394,6 +466,20 @@ onMounted(() => {
           @cancel="closeDeleteConfirmModal"
           @confirm="confirmDeleteFromModal"
         >
+          <div class="mb-6 rounded-sm bg-surface-secondary p-4 text-subhead">
+            <label class="flex items-start gap-3">
+              <input
+                v-model="deleteRelatedKnowledge"
+                type="checkbox"
+                class="mt-1 accent-primary"
+                :disabled="Boolean(deletingMenuTargetId)"
+              />
+              <span>同时删除关联知识条目</span>
+            </label>
+            <p class="mt-2 text-caption leading-6 text-label-secondary">
+              若已加入知识库，不勾选则保留知识正文；勾选会删除关联知识和处理任务。删除文件夹时包含其子目录中的文件。
+            </p>
+          </div>
           <template #confirm-icon>
             <Icon
               v-if="deletingMenuTargetId"
@@ -448,6 +534,7 @@ onMounted(() => {
           @rename="renameMenuTarget"
           @move="moveMenuTarget"
           @delete="deleteMenuTarget"
+          @knowledge="handleKnowledge"
           @close="closeFileMenu"
         />
 

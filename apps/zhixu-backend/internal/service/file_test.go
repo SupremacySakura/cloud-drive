@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -286,6 +287,177 @@ func TestInitUploadFile_ReusesTheTaskForTheSameRequest(t *testing.T) {
 	assert.Equal(t, uint(41), task.ID)
 	assert.Equal(t, model.IntSlice{0}, task.UploadedChunks)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDeleteFileWithKnowledgeIsAtomic(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "knowledge failure rolls back file deletion"}[fail], func(t *testing.T) {
+			db, mock, cleanup := setupServiceMockDB(t)
+			defer cleanup()
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+				WithArgs(uint(5), uint(7), 1).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "name"}).AddRow(5, 7, "note.md"))
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE `file_models`").WithArgs(sqlmock.AnyArg(), uint(5), uint(7)).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			query := mock.ExpectExec("DELETE FROM `knowledge_import_tasks` WHERE user_id = .*knowledge_id IN").
+				WithArgs(uint(7), uint(7), uint(5))
+			if fail {
+				query.WillReturnError(errors.New("knowledge delete failed"))
+				mock.ExpectRollback()
+			} else {
+				query.WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("DELETE FROM `knowledge_items` WHERE user_id = .*source_file_id").
+					WithArgs(uint(7), uint(5)).WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectCommit()
+			}
+			svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+			err := svc.DeleteByIDs(7, 5, 0, true)
+			if fail {
+				require.ErrorContains(t, err, "knowledge delete failed")
+			} else {
+				require.NoError(t, err)
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestDeleteFolderWithKnowledgeIncludesDescendants(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .* FROM `folder_models`").
+		WithArgs(uint(3), uint(7), 1).WillReturnRows(sqlmock.NewRows([]string{"id", "user_id"}).AddRow(3, 7))
+	mock.ExpectQuery("SELECT .* FROM `folder_models`").
+		WithArgs(uint(3), uint(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(4))
+	mock.ExpectQuery("SELECT .* FROM `folder_models`").
+		WithArgs(uint(4), uint(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectExec("UPDATE `file_models`").WithArgs(sqlmock.AnyArg(), uint(3), uint(4), uint(7)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("DELETE FROM `knowledge_import_tasks` .*source_file_id IN .*folder_id IN").
+		WithArgs(uint(7), uint(7), uint(7), uint(3), uint(4)).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("DELETE FROM `knowledge_items` .*source_file_id IN .*folder_id IN").
+		WithArgs(uint(7), uint(7), uint(3), uint(4)).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("UPDATE `folder_models`").WithArgs(sqlmock.AnyArg(), uint(3), uint(4), uint(7)).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	require.NoError(t, svc.DeleteByIDs(7, 0, 3, true))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInitUploadFile_ReuploadsDeletedCompletedFiles(t *testing.T) {
+	// Each file retains a completed task even after its logical file is soft-deleted.
+	for _, name := range []string{"report.md", "report-copy.md", "report-copy-2.md"} {
+		t.Run(name, func(t *testing.T) {
+			db, mock, cleanup := setupServiceMockDB(t)
+			defer cleanup()
+			req := &model.UploadTask{
+				UserID: 7, FileName: name, FileHash: "abcdef0123456789",
+				FileSize: 1024, ChunkSize: 1024, TotalChunks: 1, FileType: "text/markdown",
+				UploadedChunks: model.IntSlice{},
+			}
+			key, _, _, err := buildUploadIdentity(req)
+			require.NoError(t, err)
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `upload_tasks`")).
+				WithArgs(key, 1).
+				WillReturnRows(sqlmock.NewRows([]string{
+					"id", "user_id", "status", "file_id", "idempotency_key", "request_hash",
+				}).AddRow(41, 7, model.UploadStatusCompleted, 88, key, "old-chunk-parameters"))
+			mock.ExpectQuery("SELECT .* FROM `file_models` WHERE .*deleted_at.*").
+				WithArgs(uint(88), uint(7), 1).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE `upload_tasks` SET .*idempotency_key.*").
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), uint(41), uint(7), key, model.UploadStatusCompleted).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+				WithArgs(req.FileHash, req.UserID, req.FolderID, 1).WillReturnError(gorm.ErrRecordNotFound)
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+				WithArgs(req.FileHash, 1).WillReturnError(gorm.ErrRecordNotFound)
+			mock.ExpectBegin()
+			mock.ExpectExec(regexp.QuoteMeta("INSERT INTO `upload_tasks`")).
+				WillReturnResult(sqlmock.NewResult(55, 1))
+			mock.ExpectCommit()
+			chunkRoot := t.TempDir()
+			svc := &fileService{
+				FileRepository:     repository.NewFileRepository(db),
+				FileServiceOptions: FileServiceOptions{ChunkStoragePath: chunkRoot},
+			}
+			task, err := svc.InitUploadFile(req)
+			require.NoError(t, err)
+			require.Equal(t, uint(55), task.ID)
+			require.Equal(t, model.UploadStatusUploading, task.Status)
+			require.Nil(t, task.FileID)
+			require.Empty(t, task.UploadedChunks)
+			_, err = os.Stat(filepath.Join(chunkRoot, "55"))
+			require.NoError(t, err)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestReusableUploadTask_CompletedFileValidation(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		fileExists    bool
+		databaseError bool
+		conflict      bool
+	}{
+		{name: "live file remains idempotent", fileExists: true},
+		{name: "live file still rejects parameter conflicts", fileExists: true, conflict: true},
+		{name: "database failure never retires task", databaseError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, mock, cleanup := setupServiceMockDB(t)
+			defer cleanup()
+			id := uint(88)
+			task := &model.UploadTask{ID: 41, UserID: 7, Status: model.UploadStatusCompleted, FileID: &id, RequestHash: "same"}
+			query := mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+				WithArgs(id, uint(7), 1)
+			if test.databaseError {
+				query.WillReturnError(errors.New("database unavailable"))
+			} else {
+				query.WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
+			}
+			svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+			hash := "same"
+			if test.conflict {
+				hash = "different"
+			}
+			got, err := svc.reusableUploadTask(task, hash)
+			switch {
+			case test.databaseError:
+				require.ErrorContains(t, err, "database unavailable")
+			case test.conflict:
+				require.ErrorIs(t, err, ErrUploadRequestConflict)
+			default:
+				require.NoError(t, err)
+				require.Same(t, task, got)
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestReusableUploadTask_ConcurrentRetirement(t *testing.T) {
+	db, mock, cleanup := setupServiceMockDB(t)
+	defer cleanup()
+	id := uint(88)
+	task := &model.UploadTask{ID: 41, UserID: 7, Status: model.UploadStatusCompleted, FileID: &id, IdempotencyKey: "old-key"}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT * FROM `file_models`")).
+		WithArgs(id, uint(7), 1).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `upload_tasks` SET .*idempotency_key.*").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), uint(41), uint(7), "old-key", model.UploadStatusCompleted).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	svc := &fileService{FileRepository: repository.NewFileRepository(db)}
+	got, err := svc.reusableUploadTask(task, "new-parameters")
+	require.NoError(t, err)
+	require.Nil(t, got, "another request already retired the key; never reuse the deleted file")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestInitUploadFile_RejectsDifferentParametersForTheSameIdentity(t *testing.T) {

@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"os"
@@ -25,7 +26,11 @@ type Config struct {
 	DBName     string `mapstructure:"DB_NAME"`
 
 	// JWT 配置
-	JWTSecret string `mapstructure:"JWT_SECRET"`
+	JWTSecret                    string `mapstructure:"JWT_SECRET"`
+	ModelConfigEncryptionKey     string `mapstructure:"MODEL_CONFIG_ENCRYPTION_KEY"`
+	ChatAIURL                    string `mapstructure:"CHAT_AI_URL"`
+	ChatBackendURL               string `mapstructure:"CHAT_BACKEND_URL"`
+	ModelAllowedPrivateEndpoints string `mapstructure:"MODEL_ALLOWED_PRIVATE_ENDPOINTS"`
 
 	// CORS 配置
 	CORSAllowedOrigins string `mapstructure:"CORS_ALLOWED_ORIGINS"`
@@ -82,6 +87,8 @@ func Load() (*Config, error) {
 // setDefaults 设置配置项的默认值
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("PORT", "9000")
+	v.SetDefault("CHAT_AI_URL", "http://127.0.0.1:4111")
+	v.SetDefault("CHAT_BACKEND_URL", "http://127.0.0.1:9000")
 	v.SetDefault("DB_USER", "root")
 	v.SetDefault("DB_PASSWORD", "123456123456")
 	v.SetDefault("DB_HOST", "127.0.0.1")
@@ -130,6 +137,8 @@ func bindEnvVariables(v *viper.Viper) {
 		"PORT",
 		"DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME",
 		"JWT_SECRET",
+		"MODEL_CONFIG_ENCRYPTION_KEY",
+		"CHAT_AI_URL", "CHAT_BACKEND_URL", "MODEL_ALLOWED_PRIVATE_ENDPOINTS",
 		"CORS_ALLOWED_ORIGINS",
 		"CHUNK_STORAGE_PATH", "FILE_STORAGE_PATH",
 		"LOG_LEVEL", "APP_ENV",
@@ -182,6 +191,12 @@ func resolvePath(path string) string {
 // validate 验证必需字段
 // 如果必需字段为空，返回错误
 func (c *Config) validate() error {
+	if c.ModelConfigEncryptionKey != "" {
+		key, err := base64.StdEncoding.DecodeString(c.ModelConfigEncryptionKey)
+		if err != nil || len(key) != 32 {
+			return fmt.Errorf("MODEL_CONFIG_ENCRYPTION_KEY 必须是 32 字节随机密钥的 Base64 编码")
+		}
+	}
 	// JWT_SECRET 是必需字段
 	if strings.TrimSpace(c.JWTSecret) == "" {
 		return fmt.Errorf("必需配置项 JWT_SECRET 为空: JWT 密钥必须显式配置")

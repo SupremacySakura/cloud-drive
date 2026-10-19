@@ -47,14 +47,19 @@
 
   /* —— 旧令牌（源自 tailwind.config.js），为兼容存量页面暂时保留 ——
      新代码禁止使用，逐步替换为上方语义令牌，见 DESIGN.md §7 路线图 */
-  --color-background-light: #f6f8f7; /* deprecated → --color-canvas */
-  --color-background-dark: #10221b; /* deprecated → 暗色令牌后续单独定义 */
-  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif; /* deprecated → --font-sans */
+  --color-background-light: #f6f8f7;
+  /* deprecated → --color-canvas */
+  --color-background-dark: #10221b;
+  /* deprecated → 暗色令牌后续单独定义 */
+  --font-display:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', system-ui, sans-serif;
+  /* deprecated → --font-sans */
 
   /* —— 字体 —— */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', system-ui, sans-serif;
 
   /* —— 字级：字号 + 行高 + 字重 + 字距一体化工具类（DESIGN.md §2.2）——
      用法示例：<h1 class="text-display">、<p class="text-subhead"> */
@@ -136,6 +141,123 @@
   :focus-visible {
     outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
     outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .knowledge-button-primary,
+  .knowledge-button-secondary,
+  .knowledge-button-tint {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-5 text-subhead font-semibold transition-colors hover:brightness-95 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .knowledge-button-primary {
+    @apply bg-primary text-surface hover:bg-primary-hover active:bg-primary-pressed;
+  }
+
+  .knowledge-button-secondary {
+    @apply border border-hairline bg-surface text-label hover:bg-surface-secondary;
+  }
+
+  .knowledge-button-tint {
+    @apply bg-primary-tint text-primary-pressed;
+  }
+
+  .knowledge-text-action {
+    @apply inline-flex min-h-11 items-center gap-2 text-subhead font-semibold text-primary-pressed hover:underline disabled:cursor-not-allowed disabled:text-label-secondary disabled:no-underline;
+  }
+
+  .knowledge-icon-button {
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-sm text-label-secondary hover:bg-surface-secondary disabled:opacity-50;
+  }
+
+  .knowledge-input {
+    @apply min-h-11 rounded-sm border border-hairline bg-surface px-3 text-body text-label outline-none focus:border-primary focus:ring-2 focus:ring-primary-tint disabled:opacity-50;
+  }
+
+  .knowledge-dialog {
+    @apply fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-xl border-0 bg-transparent p-0 text-label;
+  }
+
+  .knowledge-dialog::backdrop {
+    @apply bg-scrim backdrop-blur-sm;
+  }
+
+  .knowledge-markdown {
+    @apply break-words text-body leading-8;
+  }
+
+  .knowledge-markdown h1 {
+    @apply mb-5 mt-7 text-title-1;
+  }
+
+  .knowledge-markdown h2 {
+    @apply mb-4 mt-7 text-title-2;
+  }
+
+  .knowledge-markdown h3 {
+    @apply mb-3 mt-6 text-headline;
+  }
+
+  .knowledge-markdown h4,
+  .knowledge-markdown h5,
+  .knowledge-markdown h6 {
+    @apply mb-3 mt-5 text-body font-semibold;
+  }
+
+  .knowledge-markdown p {
+    @apply mb-4;
+  }
+
+  .knowledge-markdown ul {
+    @apply mb-4 list-disc pl-6;
+  }
+
+  .knowledge-markdown ol {
+    @apply mb-4 list-decimal pl-6;
+  }
+
+  .knowledge-markdown blockquote {
+    @apply my-5 border-l-4 border-primary bg-primary-tint px-4 py-3 text-label-secondary;
+  }
+
+  .knowledge-markdown pre {
+    @apply my-4 overflow-x-auto rounded-sm bg-surface-secondary p-4 text-subhead leading-7;
+  }
+
+  .knowledge-markdown code {
+    @apply rounded-sm bg-surface-secondary px-1 py-0.5 text-subhead;
+  }
+
+  .knowledge-markdown pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .knowledge-markdown a {
+    @apply text-primary-pressed underline;
+  }
+
+  .knowledge-markdown table {
+    @apply my-4 block max-w-full overflow-x-auto border-collapse text-subhead;
+  }
+
+  .knowledge-markdown td,
+  .knowledge-markdown th {
+    @apply border border-hairline px-3 py-2 text-left;
+  }
+
+  .knowledge-markdown hr {
+    @apply my-6 border-hairline;
+  }
+
+  .markdown-image-note {
+    @apply text-caption text-label-secondary;
+  }
+}
+
+@media (max-width: 640px) {
+  .knowledge-dialog {
+    @apply bottom-0 top-auto mb-0 w-full max-w-none rounded-b-none;
   }
 }
 

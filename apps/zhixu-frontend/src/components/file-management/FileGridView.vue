@@ -5,6 +5,8 @@ import type { FileDisplayItem, FileItemKey } from '../../types/file'
 import { formatBytes } from '../../utils/file'
 import { ownerInitials } from '../../utils/file-management'
 import FileEmptyState from './FileEmptyState.vue'
+import FileKnowledgeAction from '../knowledge/FileKnowledgeAction.vue'
+import type { KnowledgeItem } from '../../services/apis/knowledge'
 
 const props = withDefaults(
   defineProps<{
@@ -14,6 +16,7 @@ const props = withDefaults(
     selectedIds: ReadonlySet<FileItemKey>
     query?: string
     ownerName?: string
+    knowledgeRevision?: number
   }>(),
   {
     query: '',
@@ -27,6 +30,7 @@ const emit = defineEmits<{
   'toggle-select': [file: FileDisplayItem, checked: boolean]
   'open-menu': [file: FileDisplayItem, anchor: HTMLElement]
   upload: []
+  knowledge: [file: FileDisplayItem, item: KnowledgeItem | null]
 }>()
 
 const ownerBadge = computed(() => ownerInitials(props.ownerName))
@@ -134,6 +138,12 @@ const cardClass = (key: FileItemKey) =>
           <span class="whitespace-nowrap">{{ file.lastModifiedText }}</span>
         </div>
 
+        <FileKnowledgeAction
+          class="mt-3"
+          :file="file"
+          :revision="knowledgeRevision"
+          @action="(target, item) => emit('knowledge', target, item)"
+        />
         <div class="mt-3 flex items-center justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2">
             <span

@@ -84,6 +84,7 @@ export function useFileOperations(options: UseFileOperationsOptions) {
   const moveBrowserError = ref<string | null>(null)
 
   const isDeleteConfirmModalOpen = ref(false)
+  const deleteRelatedKnowledge = ref(false)
   const deleteConfirmTarget = ref<FileDisplayItem | null>(null)
   const deletingMenuTargetId = ref<string | null>(null)
   const deleteError = ref<string | null>(null)
@@ -379,6 +380,7 @@ export function useFileOperations(options: UseFileOperationsOptions) {
   }
 
   const handleDeleteFromMenu = (target?: FileDisplayItem | null) => {
+    deleteRelatedKnowledge.value = false
     cancelRequest(deleteRequest)
     deletingMenuTargetId.value = null
     if (target) deleteConfirmTarget.value = target
@@ -404,7 +406,13 @@ export function useFileOperations(options: UseFileOperationsOptions) {
     let succeeded = false
 
     try {
-      await deleteFile(toFileTarget(item), controller.signal)
+      await deleteFile(
+        {
+          ...toFileTarget(item),
+          ...(deleteRelatedKnowledge.value ? { delete_knowledge: true } : {}),
+        },
+        controller.signal,
+      )
       if (!isCurrentRequest(deleteRequest, sequence, controller)) return false
 
       succeeded = true
@@ -509,6 +517,7 @@ export function useFileOperations(options: UseFileOperationsOptions) {
     selectMoveTargetCurrent,
     handleMove,
     isDeleteConfirmModalOpen,
+    deleteRelatedKnowledge,
     deleteConfirmTarget,
     deletingMenuTargetId,
     deleteError,

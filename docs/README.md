@@ -26,6 +26,11 @@ AI 工具进入项目时应优先读取的必读层。
 - [../README.md](../README.md#两种启动方式) — 本地开发与 Docker 启动、端口和升级约束
 - [frontend-structure.md](./frontend-structure.md) — 前端详细结构
 - [backend-structure.md](./backend-structure.md) — 后端详细结构
+- [markdown-knowledge-backend.md](./markdown-knowledge-backend.md) — Markdown 入库、数据库迁移与接口契约
+- [markdown-knowledge-frontend.md](./markdown-knowledge-frontend.md) — 文件加入、知识阅读与前端验收边界
+- [model-settings-backend.md](./model-settings-backend.md) — 用户模型配置、加密凭据与默认模型接口
+- [model-settings-frontend.md](./model-settings-frontend.md) — 设置页、供应商表单与真实接口接入
+- [plain-chat.md](./plain-chat.md) — 临时无工具对话、Mastra 网关与启动方式
 
 ## 2. 推荐阅读顺序
 1. [brain/project.md](./brain/project.md) — 了解项目是什么

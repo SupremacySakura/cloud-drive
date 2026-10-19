@@ -40,7 +40,18 @@
 - 请求层（`src/services/request.ts`）负责统一注入 `Authorization` 请求头与处理通用响应逻辑。
 - 业务 API 文件只关心参数与返回结构，不重复处理 token 拼接逻辑。
 
+## Markdown 知识库
+
+- `/home/knowledge` 为知识列表，`/home/knowledge/:id` 为阅读详情，沿用主路由鉴权。
+- 文件列表、网格及更多菜单使用 `components/knowledge/FileKnowledgeAction.vue` 查询来源文件的知识状态，支持单文件加入。
+- `useKnowledgeImport` 管理提交、重试、状态面板与任务轮询，`useKnowledgeLibrary` 管理分页搜索、状态筛选及请求取消。
+- Markdown 使用 `markdown-it` 渲染，禁用原始 HTML、危险协议、相对资源链接和所有图片请求。正文仅阅读，不编辑、不请求 AI。
+- 已加入文件直接跳转详情。详情来源目录链接使用加入时快照，因此文件后续移动或删除时不能保证定位原件；不声称精确定位。
+- 接入行为与验收边界见 [Markdown 知识前端](./markdown-knowledge-frontend.md)。
+
 ## UI 与样式约定
+
+模型设置 `/home/settings` 的页面、表单和请求管理见 [模型设置前端](./model-settings-frontend.md)。当前接入真实配置存储，模型调用与服务检测待后续实现。
 
 - 样式体系为 Tailwind v4 CSS-first：设计令牌集中维护在 `src/style.css` 的 `@theme`（颜色/字级/圆角/阴影/动效），唯一权威文档为仓库根目录 `DESIGN.md`。旧 `tailwind.config.js` 已废弃（仅留迁移对照），新代码禁止硬编码色值，并避免使用兼容令牌 `--color-background-light/dark`、`--font-display`。
 - 主色为品牌绿 `#10b674`（语义令牌 `--color-primary`）；浅色优先，暗色模式保留 class 方案能力（`@custom-variant dark`），暗色令牌后续单独定义，当前代码不新增 `dark:` 变体。

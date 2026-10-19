@@ -825,7 +825,7 @@ func (h *FileHandler) DeleteFileByID(c *gin.Context) {
 		response.Fail(c, response.CodeUnauthorized)
 		return
 	}
-	if err := h.FileService.DeleteByIDs(userID, req.FileID, req.FolderID); err != nil {
+	if err := h.FileService.DeleteByIDs(userID, req.FileID, req.FolderID, req.DeleteKnowledge); err != nil {
 		if errors.Is(err, errors.ErrFileNotFound) || errors.Is(err, errors.ErrFolderNotFound) {
 			response.FailWithStatus(c, http.StatusNotFound, response.CodeNotFound, "文件不存在")
 			return

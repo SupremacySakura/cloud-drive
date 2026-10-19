@@ -9,8 +9,11 @@ import SideBar, { type NavItem } from '../components/bussiness/SideBar.vue'
 const NavItems: NavItem[] = [
   { label: '仪表盘', icon: 'material-symbols:dashboard', to: '/home/dashboard' },
   { label: '文件管理', icon: 'material-symbols:folder-open', to: '/home/files' },
+  { label: '知识库', icon: 'material-symbols:menu-book-outline', to: '/home/knowledge' },
+  { label: '对话', icon: 'material-symbols:chat-bubble-outline', to: '/home/chat' },
   { label: '取件码', icon: 'material-symbols:key-outline', to: '/home/pickup-codes' },
   { label: '上传', icon: 'material-symbols:cloud-upload', to: '/home/upload' },
+  { label: '设置', icon: 'material-symbols:settings-outline', to: '/home/settings' },
 ]
 
 const route = useRoute()

@@ -44,3 +44,17 @@
 - 本地 `pnpm dev` 显式设置 `ZHIXU_ENV_FILE` 读取 `.env.development`，不会回退到 Docker `.env`；文件存储路径由配置注入。
 - `internal/database/migrate.go` 在创建应用表后补建文件查询索引，兼容首次初始化和已有数据库。
 - 启动、端口与旧数据库升级约束见根 [README](../README.md#两种启动方式)。
+
+## Markdown 知识模块
+
+- `internal/model/knowledge.go` 定义独立知识与导入任务表；启动迁移自动补建。
+- `internal/repository/knowledge_repo.go` 管理用户隔离、事务、唯一约束与任务租约。
+- `internal/service/knowledge.go` 处理 Markdown 读取校验与后台队列，`cmd/server/main.go` 接入启动和退出生命周期。
+- 接口由 `internal/router/knowledge.go` 注册 JWT 鉴权。数据库字段、接口及边界见 [Markdown 知识后端](./markdown-knowledge-backend.md)。
+
+## 模型配置模块
+
+- `internal/model/ai_config.go` 定义供应商、模型清单和用户默认设置三张表。
+- `internal/repository/ai_config_repo.go` 使用用户行锁实现配置写入事务；`internal/service/ai_config.go` 管理版本、用途、默认模型与重建校验。
+- `internal/service/model_credentials.go` 提供绑定用户和供应商的 AES-GCM 凭据加密。
+- JWT 配置接口由 `internal/router/ai_config.go` 注册；完整契约见 [模型配置后端](./model-settings-backend.md)。本轮不调用模型或向量库。

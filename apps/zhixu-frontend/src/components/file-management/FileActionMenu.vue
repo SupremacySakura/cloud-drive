@@ -4,6 +4,8 @@ import { Icon } from '@iconify/vue'
 import { AnimatePresence, Motion } from 'motion-v'
 import { springSnappy } from '../../utils/motion'
 import type { FileDisplayItem } from '../../types/file'
+import FileKnowledgeAction from '../knowledge/FileKnowledgeAction.vue'
+import type { KnowledgeItem } from '../../services/apis/knowledge'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
   move: []
   delete: []
   close: []
+  knowledge: [file: FileDisplayItem, item: KnowledgeItem | null]
 }>()
 
 const menuRef = ref<{ $el?: HTMLElement } | HTMLElement | null>(null)
@@ -122,6 +125,12 @@ const itemClass =
           <Icon class="text-[18px] text-label-secondary" icon="material-symbols:drive-file-move" />
           移动到
         </button>
+        <div v-if="target?.type === 'file'" class="border-t border-hairline px-3 py-2">
+          <FileKnowledgeAction
+            :file="target"
+            @action="(file, item) => emit('knowledge', file, item)"
+          />
+        </div>
         <div class="mx-2.5 my-1 h-px bg-hairline"></div>
         <button
           :class="[itemClass, 'text-danger hover:bg-danger-tint disabled:hover:bg-transparent']"

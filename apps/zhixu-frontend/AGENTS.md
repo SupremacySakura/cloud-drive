@@ -11,6 +11,8 @@
 ## 前端核心文档
 
 - 前端结构: [docs/frontend-structure.md](../../docs/frontend-structure.md)
+- Markdown 知识前端: [docs/markdown-knowledge-frontend.md](../../docs/markdown-knowledge-frontend.md)
+- 模型设置前端: [docs/model-settings-frontend.md](../../docs/model-settings-frontend.md)
 - 技术栈: [docs/brain/tech-stack.md](../../docs/brain/tech-stack.md)
 - 项目约束: [docs/brain/constraints.md](../../docs/brain/constraints.md)
 

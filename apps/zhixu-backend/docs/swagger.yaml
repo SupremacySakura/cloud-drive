@@ -48,6 +48,8 @@ definitions:
     type: object
   dto.DeleteFileReq:
     properties:
+      delete_knowledge:
+        type: boolean
       file_id:
         minimum: 1
         type: integer
@@ -153,6 +155,63 @@ definitions:
     required:
     - name
     type: object
+  handler.AddKnowledgeRequest:
+    properties:
+      file_id:
+        type: integer
+      title:
+        type: string
+    required:
+    - file_id
+    type: object
+  handler.DeleteAIProviderRequest:
+    properties:
+      expected_version:
+        type: integer
+    type: object
+  model.KnowledgeItem:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      error_code:
+        type: string
+      error_message:
+        type: string
+      id:
+        type: integer
+      imported_at:
+        type: string
+      source_file_id:
+        type: integer
+      source_file_name:
+        type: string
+      source_folder_id:
+        type: integer
+      source_folder_name:
+        type: string
+      source_type:
+        type: string
+      status:
+        $ref: '#/definitions/model.KnowledgeStatus'
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  model.KnowledgeStatus:
+    enum:
+    - pending
+    - running
+    - ready
+    - failed
+    type: string
+    x-enum-varnames:
+    - KnowledgePending
+    - KnowledgeRunning
+    - KnowledgeReady
+    - KnowledgeFailed
   model.OperationLogAction:
     enum:
     - upload
@@ -231,6 +290,23 @@ definitions:
     x-enum-varnames:
     - PickUpTargetTypeFile
     - PickUpTargetTypeFolder
+  model.ProviderModel:
+    properties:
+      created_at:
+        type: string
+      dimension:
+        type: integer
+      id:
+        type: integer
+      kind:
+        type: string
+      model_id:
+        type: string
+      provider_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
   model.UploadStatus:
     enum:
     - uploading
@@ -241,6 +317,21 @@ definitions:
     - UploadStatusUploading
     - UploadStatusMerging
     - UploadStatusCompleted
+  model.UserAISettings:
+    properties:
+      chat_model_id:
+        type: integer
+      config_version:
+        type: integer
+      embedding_model_id:
+        type: integer
+      embedding_version:
+        type: integer
+      needs_reindex:
+        type: boolean
+      updated_at:
+        type: string
+    type: object
   response.Response:
     properties:
       code:
@@ -265,6 +356,105 @@ definitions:
     - CodeNotFound
     - CodeServerError
     - CodeConflict
+  service.AIConfigView:
+    properties:
+      providers:
+        items:
+          $ref: '#/definitions/service.ProviderView'
+        type: array
+      settings:
+        $ref: '#/definitions/model.UserAISettings'
+    type: object
+  service.ChatInput:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/service.ChatMessage'
+        type: array
+      model_id:
+        type: integer
+    type: object
+  service.ChatMessage:
+    properties:
+      content:
+        type: string
+      role:
+        type: string
+    type: object
+  service.DefaultsInput:
+    properties:
+      chat_model_id:
+        type: integer
+      confirm_reindex:
+        type: boolean
+      embedding_model_id:
+        type: integer
+      expected_version:
+        type: integer
+    type: object
+  service.ModelInput:
+    properties:
+      dimension:
+        type: integer
+      kind:
+        type: string
+      model_id:
+        type: string
+    type: object
+  service.ProviderInput:
+    properties:
+      api_key:
+        type: string
+      auth_type:
+        type: string
+      base_url:
+        type: string
+      catalog_id:
+        type: string
+      clear_api_key:
+        type: boolean
+      confirm_reindex:
+        type: boolean
+      expected_version:
+        type: integer
+      models:
+        items:
+          $ref: '#/definitions/service.ModelInput'
+        type: array
+      name:
+        type: string
+      protocol:
+        type: string
+      provider_id:
+        type: string
+    type: object
+  service.ProviderView:
+    properties:
+      auth_type:
+        type: string
+      base_url:
+        type: string
+      catalog_id:
+        type: string
+      created_at:
+        type: string
+      credential_configured:
+        type: boolean
+      id:
+        type: integer
+      models:
+        items:
+          $ref: '#/definitions/model.ProviderModel'
+        type: array
+      name:
+        type: string
+      protocol:
+        type: string
+      provider_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
   vo.InitUploadFileResp:
     properties:
       file_id:
@@ -426,6 +616,29 @@ paths:
       summary: 用户注册
       tags:
       - auth
+  /chat:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 用户模型 ID 与会话
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/service.ChatInput'
+      produces:
+      - application/x-ndjson
+      responses:
+        "200":
+          description: meta / delta / done / error 事件
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: 临时无工具多轮对话，返回 NDJSON 流
+      tags:
+      - chat
   /file/chunk:
     post:
       consumes:
@@ -1258,4 +1471,367 @@ paths:
       summary: 打开公开分享
       tags:
       - file
+  /knowledge:
+    get:
+      parameters:
+      - description: 页码，默认1
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量，默认20，最大100
+        in: query
+        name: page_size
+        type: integer
+      - description: 标题包含匹配
+        in: query
+        name: q
+        type: string
+      - description: pending/running/ready/failed
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 分页查询知识条目
+      tags:
+      - knowledge
+    post:
+      consumes:
+      - application/json
+      description: 首次加入返回202。重复请求返回原知识条目，不改变标题或重试失败任务。
+      parameters:
+      - description: 文件与可选标题
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/handler.AddKnowledgeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeItem'
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeItem'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 将 Markdown 文件加入知识库
+      tags:
+      - knowledge
+  /knowledge/{id}:
+    delete:
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 删除知识条目，保留原文件
+      tags:
+      - knowledge
+    get:
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeItem'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 知识详情及入库状态
+      tags:
+      - knowledge
+  /knowledge/{id}/retry:
+    post:
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeItem'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 重试失败的知识导入
+      tags:
+      - knowledge
+  /knowledge/by-file/{file_id}:
+    get:
+      description: 未加入或无权访问返回404，文件表不新增知识状态字段。
+      parameters:
+      - description: 文件ID
+        in: path
+        name: file_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeItem'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 查询文件的知识库状态
+      tags:
+      - knowledge
+  /settings/ai:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.AIConfigView'
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 获取当前用户模型配置（不返回密钥）
+      tags:
+      - ai-settings
+  /settings/ai/catalog:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取供应商预设目录（不是实时模型清单）
+      tags:
+      - ai-settings
+  /settings/ai/defaults:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 默认模型和配置版本
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/service.DefaultsInput'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.AIConfigView'
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 保存默认对话与 Embedding 模型，切换向量配置需要确认
+      tags:
+      - ai-settings
+  /settings/ai/providers:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 供应商与模型配置
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/service.ProviderInput'
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.AIConfigView'
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 创建模型供应商及模型清单
+      tags:
+      - ai-settings
+  /settings/ai/providers/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: 供应商数据库 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 当前配置版本
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/handler.DeleteAIProviderRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.AIConfigView'
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 删除未被默认模型使用的供应商和模型
+      tags:
+      - ai-settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 供应商数据库 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 供应商与模型配置
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/service.ProviderInput'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.AIConfigView'
+              type: object
+      security:
+      - ApiKeyAuth: []
+      summary: 替换供应商配置与完整模型清单，保留同名模型 ID
+      tags:
+      - ai-settings
 swagger: "2.0"

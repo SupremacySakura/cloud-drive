@@ -2,12 +2,8 @@ package service
 
 import (
 	"archive/zip"
-	"zhixu-backend/internal/dto"
-	"zhixu-backend/internal/model"
-	"zhixu-backend/internal/repository"
-	"zhixu-backend/internal/utils"
-	"zhixu-backend/internal/vo"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,6 +17,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"zhixu-backend/internal/dto"
+	"zhixu-backend/internal/model"
+	"zhixu-backend/internal/repository"
+	"zhixu-backend/internal/utils"
+	"zhixu-backend/internal/vo"
 
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
@@ -186,7 +187,7 @@ type FileService interface {
 	MakeDirectory(folderID uint, name string, userID uint) (uint, error)
 	RenameByIDs(userID uint, fileID, folderID uint, name string) error
 	MoveByIDs(userID uint, fileID, folderID, targetFolderID uint) error
-	DeleteByIDs(userID uint, fileID, folderID uint) error
+	DeleteByIDs(userID uint, fileID, folderID uint, deleteKnowledge ...bool) error
 	CreatePickUpCode(userID uint, code *model.PickUpCodeModel) (uint, error)
 	GetPickUpCodeListByUserID(userID uint, page int, pageSize int) ([]vo.PickUpCodeListItem, error)
 	GetPickUpCodeListCountByUserID(userID uint) (int64, error)
@@ -312,6 +313,32 @@ func (s *fileService) recordOperation(userID uint, action model.OperationLogActi
 	}
 }
 
+// Completed tasks only deduplicate while their logical file still exists.
+// Retire the key with a CAS so concurrent reuploads still share one new task.
+func (s *fileService) reusableUploadTask(task *model.UploadTask, requestHash string) (*model.UploadTask, error) {
+	if task.Status == model.UploadStatusCompleted {
+		var fileErr error = gorm.ErrRecordNotFound
+		if task.FileID != nil {
+			_, fileErr = s.FileRepository.GetFileByFileIDAndUserID(*task.FileID, task.UserID)
+		}
+		if fileErr != nil && !errors.Is(fileErr, gorm.ErrRecordNotFound) {
+			return nil, fileErr
+		}
+		if errors.Is(fileErr, gorm.ErrRecordNotFound) {
+			key := sha256.Sum256([]byte(fmt.Sprintf("retired-upload:%d:%s", task.ID, task.IdempotencyKey)))
+			err := s.FileRepository.DB.Model(&model.UploadTask{}).
+				Where("id = ? AND user_id = ? AND idempotency_key = ? AND status = ?",
+					task.ID, task.UserID, task.IdempotencyKey, model.UploadStatusCompleted).
+				Update("idempotency_key", hex.EncodeToString(key[:])).Error
+			return nil, err
+		}
+	}
+	if task.RequestHash != requestHash {
+		return nil, ErrUploadRequestConflict
+	}
+	return task, nil
+}
+
 func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadTask, err error) {
 	idempotencyKey, requestHash, normalizedName, err := buildUploadIdentity(req)
 	if err != nil {
@@ -324,12 +351,11 @@ func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadT
 
 	existingTask, err := s.FileRepository.GetUploadTaskByIdempotencyKey(idempotencyKey)
 	if err == nil {
-		if existingTask.RequestHash != requestHash {
-			return nil, ErrUploadRequestConflict
+		reusable, reuseErr := s.reusableUploadTask(existingTask, requestHash)
+		if reuseErr != nil || reusable != nil {
+			return reusable, reuseErr
 		}
-		return existingTask, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
@@ -392,10 +418,11 @@ func (s *fileService) InitUploadFile(req *model.UploadTask) (task *model.UploadT
 		if getErr != nil {
 			return nil, getErr
 		}
-		if existingTask.RequestHash != requestHash {
-			return nil, ErrUploadRequestConflict
+		reusable, reuseErr := s.reusableUploadTask(existingTask, requestHash)
+		if reuseErr != nil || reusable != nil {
+			return reusable, reuseErr
 		}
-		return existingTask, nil
+		return s.InitUploadFile(req)
 	}
 	if err != nil {
 		return nil, err
@@ -954,7 +981,8 @@ func (s *fileService) MoveByIDs(userID uint, fileID, folderID, targetFolderID ui
 	return nil
 }
 
-func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
+func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint, deleteKnowledge ...bool) error {
+	removeKnowledge := len(deleteKnowledge) > 0 && deleteKnowledge[0]
 	if fileID > 0 && folderID > 0 {
 		return errors.New("invalid delete target")
 	}
@@ -970,7 +998,19 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 			}
 			return fmt.Errorf("删除文件失败: %w", err)
 		}
-		if err := s.FileRepository.DeleteFileByIDAndUserID(fileID, userID); err != nil {
+		deleteFile := func() error {
+			if !removeKnowledge {
+				return s.FileRepository.DeleteFileByIDAndUserID(fileID, userID)
+			}
+			return s.FileRepository.DB.Transaction(func(tx *gorm.DB) error {
+				if err := (&repository.FileRepository{DB: tx}).DeleteFileByIDAndUserID(fileID, userID); err != nil {
+					return err
+				}
+				query := tx.Model(&model.KnowledgeItem{}).Where("user_id = ? AND source_file_id = ?", userID, fileID)
+				return repository.DeleteKnowledgeRows(tx, userID, query)
+			})
+		}
+		if err := deleteFile(); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrFileNotFound
 			}
@@ -1010,6 +1050,14 @@ func (s *fileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
 
 		if err := txRepo.DeleteFilesByFolderIDsAndUserID(folderIDs, userID); err != nil {
 			return fmt.Errorf("删除文件失败: %w", err)
+		}
+		if removeKnowledge {
+			// Match current file membership, including the files just soft-deleted.
+			files := tx.Unscoped().Model(&model.FileModel{}).Select("id").Where("user_id = ? AND folder_id IN ?", userID, folderIDs)
+			query := tx.Model(&model.KnowledgeItem{}).Where("user_id = ? AND source_file_id IN (?)", userID, files)
+			if err := repository.DeleteKnowledgeRows(tx, userID, query); err != nil {
+				return err
+			}
 		}
 		return txRepo.DeleteFoldersByIDsAndUserID(folderIDs, userID)
 	})

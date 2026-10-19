@@ -124,7 +124,7 @@ func (m *mockFileService) MoveByIDs(userID uint, fileID, folderID, targetFolderI
 	return nil
 }
 
-func (m *mockFileService) DeleteByIDs(userID uint, fileID, folderID uint) error {
+func (m *mockFileService) DeleteByIDs(userID uint, fileID, folderID uint, deleteKnowledge ...bool) error {
 	if m.deleteByIDsFunc != nil {
 		return m.deleteByIDsFunc(userID, fileID, folderID)
 	}

@@ -83,6 +83,7 @@ watch(
         >
           <h3 :id="'dialog-title-' + title" class="text-title-3 mb-2">{{ title }}</h3>
           <p v-if="message" class="text-body mb-6 text-label-secondary">{{ message }}</p>
+          <slot />
 
           <div class="flex justify-end gap-3">
             <button

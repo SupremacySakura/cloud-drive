@@ -1,8 +1,8 @@
 package dto
 
 import (
-	"zhixu-backend/internal/model"
 	"time"
+	"zhixu-backend/internal/model"
 )
 
 type InitUploadFileReq struct {
@@ -93,8 +93,9 @@ type MoveFileReq struct {
 }
 
 type DeleteFileReq struct {
-	FileID   uint `json:"file_id" binding:"omitempty,min=1"`
-	FolderID uint `json:"folder_id" binding:"omitempty,min=1"`
+	DeleteKnowledge bool `json:"delete_knowledge"`
+	FileID          uint `json:"file_id" binding:"omitempty,min=1"`
+	FolderID        uint `json:"folder_id" binding:"omitempty,min=1"`
 }
 
 type CreatePublicShareLinkReq struct {

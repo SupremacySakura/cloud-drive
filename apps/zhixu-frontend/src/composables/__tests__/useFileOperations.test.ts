@@ -172,6 +172,22 @@ describe('useFileOperations', () => {
     scope.stop()
   })
 
+  it('sends the optional knowledge deletion flag and resets it for the next file', async () => {
+    const { operations, scope } = setup()
+    deleteMock.mockResolvedValue(undefined)
+    operations.handleDeleteFromMenu(displayItem(5, 'note.md'))
+    expect(operations.deleteRelatedKnowledge.value).toBe(false)
+    operations.deleteRelatedKnowledge.value = true
+    await operations.confirmDeleteFromModal()
+    expect(deleteMock).toHaveBeenLastCalledWith(
+      { file_id: 5, folder_id: 0, delete_knowledge: true },
+      expect.any(AbortSignal),
+    )
+    operations.handleDeleteFromMenu(displayItem(6, 'next.md'))
+    expect(operations.deleteRelatedKnowledge.value).toBe(false)
+    scope.stop()
+  })
+
   it('rejects moving a folder into itself and sends a folder-only target for valid moves', async () => {
     const { notify, operations, refresh, scope } = setup()
     const folder = displayItem(4, 'folder', 'folder')

@@ -4,6 +4,7 @@ import { Icon } from '@iconify/vue'
 import { AnimatePresence, Motion } from 'motion-v'
 import { springSnappy } from '../../utils/motion'
 import type { FileFilterKey, FileSortKey, FileViewMode, SortDirection } from '../../types/file'
+import FilterMenu from '../ui/FilterMenu.vue'
 
 export type FileFilterOption = {
   key: FileFilterKey
@@ -31,12 +32,8 @@ const emit = defineEmits<{
 }>()
 
 const rootRef = ref<HTMLElement | null>(null)
-const isFilterOpen = ref(false)
 const isSortOpen = ref(false)
 
-const activeFilterLabel = computed(
-  () => props.filterOptions.find(option => option.key === props.activeFilter)?.label ?? '全部类型',
-)
 const sortLabel = computed(() => {
   if (props.sortKey === 'name') return '名称'
   if (props.sortKey === 'size') return '大小'
@@ -44,7 +41,6 @@ const sortLabel = computed(() => {
 })
 
 const closeMenus = () => {
-  isFilterOpen.value = false
   isSortOpen.value = false
 }
 
@@ -64,17 +60,11 @@ const clearSearch = () => {
 }
 
 const selectViewMode = (viewMode: FileViewMode) => emit('update:viewMode', viewMode)
-const toggleFilterMenu = () => {
-  isFilterOpen.value = !isFilterOpen.value
-  isSortOpen.value = false
-}
 const toggleSortMenu = () => {
   isSortOpen.value = !isSortOpen.value
-  isFilterOpen.value = false
 }
 const selectFilter = (key: FileFilterKey) => {
   emit('select-filter', key)
-  isFilterOpen.value = false
 }
 const selectSort = (key: FileSortKey) => {
   emit('select-sort', key)
@@ -157,46 +147,12 @@ const segButtonClass =
       <span class="hidden h-5 w-px bg-hairline sm:block"></span>
 
       <!-- 筛选 chip + 菜单（从触发源弹簧生长） -->
-      <div class="relative">
-        <button
-          class="flex h-8 items-center gap-1.5 rounded-full bg-surface-tertiary px-[13px] text-[13px] font-semibold text-label-secondary transition-all duration-150 hover:text-label active:scale-[0.97]"
-          :class="activeFilter !== 'all' ? 'bg-primary-tint text-primary hover:text-primary' : ''"
-          type="button"
-          aria-label="筛选文件"
-          :aria-expanded="isFilterOpen"
-          @click="toggleFilterMenu"
-        >
-          <Icon class="text-[15px]" icon="material-symbols:filter-list" />
-          {{ activeFilter === 'all' ? '筛选' : activeFilterLabel }}
-        </button>
-
-        <AnimatePresence>
-          <Motion
-            v-if="isFilterOpen"
-            key="filter-menu"
-            :initial="{ opacity: 0, scale: 0.95 }"
-            :animate="{ opacity: 1, scale: 1 }"
-            :exit="{ opacity: 0, scale: 0.95 }"
-            :transition="springSnappy"
-            class="absolute left-0 top-full z-40 mt-1.5 min-w-[180px] origin-top-left rounded-md bg-surface p-1.5 shadow-popover"
-          >
-            <button
-              v-for="option in filterOptions"
-              :key="option.key"
-              :class="menuItemClass"
-              type="button"
-              @click="selectFilter(option.key)"
-            >
-              <span>{{ option.label }}</span>
-              <Icon
-                v-if="activeFilter === option.key"
-                icon="material-symbols:check-rounded"
-                class="text-[15px] text-primary"
-              />
-            </button>
-          </Motion>
-        </AnimatePresence>
-      </div>
+      <FilterMenu
+        :model-value="activeFilter"
+        :options="filterOptions"
+        label="筛选文件"
+        @update:model-value="selectFilter($event as FileFilterKey)"
+      />
 
       <!-- 多选条 -->
       <div

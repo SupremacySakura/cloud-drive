@@ -22,8 +22,28 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true },
       },
       {
+        path: '/home/knowledge',
+        component: () => import('../pages/KnowledgeLibrary.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/home/knowledge/:id',
+        component: () => import('../pages/KnowledgeDetail.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
         path: '/home/pickup-codes',
         component: () => import('../pages/PickupCodes.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/home/settings',
+        component: () => import('../pages/ModelSettings.vue'),
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/home/chat',
+        component: () => import('../pages/ChatPage.vue'),
         meta: { requiresAuth: true },
       },
       {

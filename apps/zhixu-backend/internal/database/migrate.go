@@ -116,6 +116,11 @@ func Migrate() error {
 		&model.PickUpCodeModel{},
 		&model.PublicShareLinkModel{},
 		&model.OperationLogModel{},
+		&model.KnowledgeItem{},
+		&model.KnowledgeImportTask{},
+		&model.ModelProvider{},
+		&model.ProviderModel{},
+		&model.UserAISettings{},
 	); err != nil {
 		return err
 	}
