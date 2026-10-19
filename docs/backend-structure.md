@@ -2,12 +2,12 @@
 
 ## 来源
 
-- `apps/cloud-drive-backend/AGENTS.md`（入口、分层、鉴权、存储与命令）。
+- `apps/zhixu-backend/AGENTS.md`（入口、分层、鉴权、存储与命令）。
 - 根目录 `AGENTS.md`（整体架构、后端端口与关键风险提示）。
 
 ## 适用范围
 
-- 适用于 `apps/cloud-drive-backend` 的目录结构、分层链路、鉴权流程与数据存储入口说明。
+- 适用于 `apps/zhixu-backend` 的目录结构、分层链路、鉴权流程与数据存储入口说明。
 
 ## 更新入口
 
@@ -40,6 +40,7 @@
 
 ## 数据库与文件存储关键路径
 
-- 数据库连接初始化位于 `internal/database/db.go`，当前配置需逐步迁移到环境变量。
-- 文件存储路径在路由初始化相关逻辑中存在硬编码，当前默认落到仓库 `data/`。
-- 生产化建议：将 DSN、JWT 密钥、存储路径统一改为环境变量注入，避免机器绑定。
+- 数据库连接初始化位于 `internal/database/db.go`，配置由 `internal/config` 从环境变量或配置文件加载。
+- 本地 `pnpm dev` 显式设置 `ZHIXU_ENV_FILE` 读取 `.env.development`，不会回退到 Docker `.env`；文件存储路径由配置注入。
+- `internal/database/migrate.go` 在创建应用表后补建文件查询索引，兼容首次初始化和已有数据库。
+- 启动、端口与旧数据库升级约束见根 [README](../README.md#两种启动方式)。

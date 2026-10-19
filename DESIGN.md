@@ -3,7 +3,7 @@
 > 本文是前端 UI 改造的**唯一设计权威来源**。所有视觉与动效决策以本文为准；
 > 本文未覆盖的场景，回到 Apple 设计原则推导，而不是凭感觉新增样式。
 >
-> - 范围：`apps/cloud-drive-frontend`
+> - 范围：`apps/zhixu-frontend`
 > - 目标：浅色优先（light-first）的类 Apple 设计，界面"像物理世界一样即时、连续、可打断"
 > - 基线技术栈：Vue 3 + Tailwind CSS v4 + `@iconify/vue`（见 `docs/brain/tech-stack.md`）
 
@@ -28,7 +28,7 @@
 
 ## 2. 设计令牌（Design Tokens）
 
-所有数值进 Tailwind v4 的 `@theme`（权威实现：`apps/cloud-drive-frontend/src/style.css`），
+所有数值进 Tailwind v4 的 `@theme`（权威实现：`apps/zhixu-frontend/src/style.css`），
 页面/组件代码**禁止**散落硬编码色值与魔法数字。旧 `tailwind.config.js` 已废弃（文件内保留迁移对照，不再被引用）。
 
 > **实现备注（Tailwind v4 树摇）**：v4 只把"被用到的" `@theme` 变量编译进产物。模板里用 `text-display`、`shadow-card`、`bg-material` 等工具类时会自动生成并发射对应变量；但在 Vue SFC `<style>` 里直接写 `var(--color-material)` 这类自定义 CSS 时，若模板中没有用到对应工具类，变量会被树摇掉、样式静默失效。约定：**令牌一律通过工具类消费**；确需自定义 CSS 引用变量时，给该元素同时挂上对应工具类（如 `bg-material`）确保变量被发射。存量兼容令牌 `--color-background-light/dark`、`--font-display` 仍可用，新代码禁用。
@@ -246,7 +246,7 @@ const rubberband = (o, d, c = 0.55) => (o * d * c) / (d + c * Math.abs(o));
 2. **基础组件**：`ui/ConfirmDialog`、`ToastNotice`、按钮/输入原子样式。
 3. **页面改造顺序**：`Login` → `Register` → `Home/Dashboard` → `FileManagement`（含全部子组件）→ `UploadFile` → `Pickup` 系。
 4. **动效层**：引入 `motion-v`，把手势场景（抽屉关闭、上传面板拖拽、拖放区）换成弹簧 + 速度交接。
-5. **验收**：`pnpm typecheck`、`pnpm lint`、`pnpm build`（在 `apps/cloud-drive-frontend`）全绿 + 走查清单（§8）。
+5. **验收**：`pnpm typecheck`、`pnpm lint`、`pnpm build`（在 `apps/zhixu-frontend`）全绿 + 走查清单（§8）。
 
 ## 8. 走查清单（每个页面合并前过一遍）
 

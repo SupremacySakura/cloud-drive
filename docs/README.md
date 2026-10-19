@@ -23,6 +23,7 @@ AI 工具进入项目时应优先读取的必读层。
 - [README.md](./skills/README.md) — 格式规范与入库流程
 
 ### 详细结构参考
+- [../README.md](../README.md#两种启动方式) — 本地开发与 Docker 启动、端口和升级约束
 - [frontend-structure.md](./frontend-structure.md) — 前端详细结构
 - [backend-structure.md](./backend-structure.md) — 后端详细结构
 

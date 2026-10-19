@@ -12,8 +12,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/supremacysakura/cloud-drive-backend
-  FRONTEND_IMAGE: ghcr.io/supremacysakura/cloud-drive-frontend
+  BACKEND_IMAGE: ghcr.io/supremacysakura/zhixu-backend
+  FRONTEND_IMAGE: ghcr.io/supremacysakura/zhixu-frontend
 
 jobs:
   deploy:
@@ -40,8 +40,8 @@ jobs:
       - name: Build and push backend image
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/cloud-drive-backend
-          file: ./apps/cloud-drive-backend/Dockerfile
+          context: ./apps/zhixu-backend
+          file: ./apps/zhixu-backend/Dockerfile
           push: true
           tags: |
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
@@ -53,7 +53,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./apps/cloud-drive-frontend/Dockerfile
+          file: ./apps/zhixu-frontend/Dockerfile
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}

@@ -13,8 +13,8 @@
 - 文档约定: [docs/brain/conventions.md](./docs/brain/conventions.md)
 
 ## 子项目索引
-- 前端: [apps/cloud-drive-frontend/AGENTS.md](./apps/cloud-drive-frontend/AGENTS.md)
-- 后端: [apps/cloud-drive-backend/AGENTS.md](./apps/cloud-drive-backend/AGENTS.md)
+- 前端: [apps/zhixu-frontend/AGENTS.md](./apps/zhixu-frontend/AGENTS.md)
+- 后端: [apps/zhixu-backend/AGENTS.md](./apps/zhixu-backend/AGENTS.md)
 
 ## 工具专属目录
 - .trae/ — Trae IDE 工作空间（已 gitignore，不作为项目知识来源）

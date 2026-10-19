@@ -1,0 +1,35 @@
+package middleware
+
+import (
+	"zhixu-backend/internal/utils"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 从请求头中获取token
+		token := c.GetHeader("Authorization")
+		if token == "" {
+			c.JSON(401, gin.H{"error": "未授权"})
+			c.Abort()
+			return
+		}
+		if !strings.HasPrefix(token, "Bearer ") || len(token) <= 7 {
+			c.JSON(401, gin.H{"error": "无效的token"})
+			c.Abort()
+			return
+		}
+		// 验证token
+		claims, err := utils.ParseToken(token[7:])
+		if err != nil {
+			c.JSON(401, gin.H{"error": "无效的token"})
+			c.Abort()
+			return
+		}
+		// 如果token有效，设置用户ID到上下文
+		c.Set("user_id", claims.UserID)
+		c.Next()
+	}
+}

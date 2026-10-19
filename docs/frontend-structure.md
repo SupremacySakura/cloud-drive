@@ -2,12 +2,12 @@
 
 ## 来源
 
-- `apps/cloud-drive-frontend/AGENTS.md`（入口、路由、状态、接口约定）。
+- `apps/zhixu-frontend/AGENTS.md`（入口、路由、状态、接口约定）。
 - 根目录 `AGENTS.md`（前后端联调关系、通用命令约定）。
 
 ## 适用范围
 
-- 适用于 `apps/cloud-drive-frontend` 目录结构、页面路由、状态管理与请求层协作。
+- 适用于 `apps/zhixu-frontend` 目录结构、页面路由、状态管理与请求层协作。
 
 ## 更新入口
 
@@ -15,6 +15,8 @@
 - 接口契约变化需同时检查 `backend-structure.md` 与 `brain/project.md` 的对应描述。
 
 ## 目录结构与职责
+
+- 启动配置与端口约定见根 [README](../README.md#两种启动方式)；本地 Vite 使用 `DEV_FRONTEND_PORT`，代理通过 `DEV_BACKEND_URL` 跟随后端端口，启用 `strictPort` 防止静默换端口。
 
 - `src/main.ts`：应用启动入口，注册 Pinia、路由及持久化插件。
 - `src/router/`：路由定义与导航守卫。

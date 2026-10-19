@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS `cloud-drive` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `cloud-drive`;
+-- The MySQL entrypoint selects MYSQL_DATABASE before running this file.
+-- Do not hard-code a name: existing installations may keep cloud-drive.
 
 CREATE TABLE IF NOT EXISTS `bootstrap_records` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

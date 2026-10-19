@@ -1,20 +1,20 @@
 services:
   mysql:
     image: ${MYSQL_IMAGE:-mysql:8.4}
-    container_name: ${MYSQL_CONTAINER_NAME:-cloud-drive-mysql}
+    container_name: ${MYSQL_CONTAINER_NAME:-zhixu-mysql}
     profiles: ["infra", "backend", "frontend", "full"]
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456123456}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-cloud-drive}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zhixu}
       MYSQL_INITDB_SKIP_TZINFO: "${MYSQL_INITDB_SKIP_TZINFO:-1}"
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${MYSQL_PORT:-3307}:3306"
     volumes:
       - ${MYSQL_DATA_DIR:-./data/mysql}:/var/lib/mysql
       - ${MYSQL_INIT_DIR:-./ops/mysql/init}:/docker-entrypoint-initdb.d:ro
       - ${MYSQL_IMPORT_DIR:-./ops/mysql/import}:/opt/mysql-import
     networks:
-      - cloud-drive-network
+      - zhixu-network
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 10s
@@ -23,11 +23,11 @@ services:
       start_period: 30s
 
   backend:
-    image: ${BACKEND_IMAGE:-cloud-drive-backend}:${IMAGE_TAG:-latest}
+    image: ${BACKEND_IMAGE:-zhixu-backend}:${IMAGE_TAG:-latest}
     build:
-      context: ./apps/cloud-drive-backend
+      context: ./apps/zhixu-backend
       dockerfile: Dockerfile
-    container_name: ${BACKEND_CONTAINER_NAME:-cloud-drive-backend}
+    container_name: ${BACKEND_CONTAINER_NAME:-zhixu-backend}
     profiles: ["backend", "frontend", "full"]
     environment:
       PORT: ${BACKEND_CONTAINER_PORT:-9000}
@@ -35,16 +35,16 @@ services:
       DB_PORT: ${DB_PORT:-3306}
       DB_USER: ${DB_USER:-root}
       DB_PASSWORD: ${DB_PASSWORD:-123456123456}
-      DB_NAME: ${DB_NAME:-cloud-drive}
+      DB_NAME: ${DB_NAME:-${MYSQL_DATABASE:-zhixu}}
       JWT_SECRET: ${JWT_SECRET:-your_secret_key}
       CHUNK_STORAGE_PATH: ${CHUNK_STORAGE_PATH:-/app/data}
       FILE_STORAGE_PATH: ${FILE_STORAGE_PATH:-/app/data}
     ports:
-      - "${BACKEND_HOST_PORT:-9000}:${BACKEND_CONTAINER_PORT:-9000}"
+      - "${BACKEND_HOST_PORT:-9001}:${BACKEND_CONTAINER_PORT:-9000}"
     volumes:
       - backend-data:/app/data
     networks:
-      - cloud-drive-network
+      - zhixu-network
     depends_on:
       mysql:
         condition: service_healthy
@@ -57,19 +57,19 @@ services:
     mem_limit: 512m
 
   frontend:
-    image: ${FRONTEND_IMAGE:-cloud-drive-frontend}:${IMAGE_TAG:-latest}
+    image: ${FRONTEND_IMAGE:-zhixu-frontend}:${IMAGE_TAG:-latest}
     build:
       context: .
-      dockerfile: apps/cloud-drive-frontend/Dockerfile
-    container_name: ${FRONTEND_CONTAINER_NAME:-cloud-drive-frontend}
+      dockerfile: apps/zhixu-frontend/Dockerfile
+    container_name: ${FRONTEND_CONTAINER_NAME:-zhixu-frontend}
     profiles: ["frontend", "full"]
     environment:
       BACKEND_UPSTREAM_HOST: ${BACKEND_UPSTREAM_HOST:-backend}
       BACKEND_CONTAINER_PORT: ${BACKEND_CONTAINER_PORT:-9000}
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - "${FRONTEND_PORT:-8080}:80"
     networks:
-      - cloud-drive-network
+      - zhixu-network
     depends_on:
       backend:
         condition: service_healthy
@@ -82,8 +82,8 @@ services:
     mem_limit: 512m
 
 networks:
-  cloud-drive-network:
-    name: ${NETWORK_NAME:-cloud-drive-network}
+  zhixu-network:
+    name: ${NETWORK_NAME:-zhixu-network}
     driver: bridge
 
 volumes:

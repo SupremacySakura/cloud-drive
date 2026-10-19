@@ -3,12 +3,12 @@ set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
   echo "Usage: $0 <sql-file-path> [database]"
-  echo "Example: $0 ./ops/mysql/import/sample.sql cloud-drive"
+  echo "Example: $0 ./ops/mysql/import/sample.sql zhixu"
   exit 1
 fi
 
 SQL_FILE="$1"
-TARGET_DB="${2:-cloud-drive}"
+TARGET_DB="${2:-zhixu}"
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-123456123456}"
 
 if [[ ! -f "$SQL_FILE" ]]; then

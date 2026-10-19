@@ -2,7 +2,7 @@
   "files": [],
   "references": [
     {
-      "path": "./apps/cloud-drive-frontend"
+      "path": "./apps/zhixu-frontend"
     }
   ]
 }

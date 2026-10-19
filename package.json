@@ -1,5 +1,5 @@
 {
-  "name": "cloud-drive",
+  "name": "zhixu",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.4",
@@ -9,14 +9,14 @@
   ],
   "scripts": {
     "dev": "bash scripts/dev.sh",
-    "build": "pnpm --filter cloud-drive-frontend build",
-    "build:backend": "cd apps/cloud-drive-backend && go build ./...",
-    "typecheck": "pnpm --filter cloud-drive-frontend typecheck",
+    "build": "pnpm --filter zhixu-frontend build",
+    "build:backend": "cd apps/zhixu-backend && go build ./...",
+    "typecheck": "pnpm --filter zhixu-frontend typecheck",
     "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx,vue}\"",
     "clean": "tsc -b --clean",
     "prepare": "husky",
-    "test": "pnpm --filter cloud-drive-frontend test:run",
-    "test:backend": "cd apps/cloud-drive-backend && go test ./...",
+    "test": "pnpm --filter zhixu-frontend test:run",
+    "test:backend": "cd apps/zhixu-backend && go test ./...",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:backend && pnpm test:backend"
   },
   "devDependencies": {

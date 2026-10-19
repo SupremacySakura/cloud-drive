@@ -1,244 +1,186 @@
-# Cloud Drive
+# 知序 Zhixu
 
-Cloud Drive 是一个全栈网盘示例项目，包含：
+> 基于大语言模型的个人知识管理与演化系统（毕业设计）
 
-- 前端：Vue 3 + TypeScript（`apps/cloud-drive-frontend`）
-- 后端：Go + Gin（`apps/cloud-drive-backend`）
-- 基础设施：MySQL（`docker compose`）
+知序是一个个人知识管理与演化系统：以文件存储与管理为底座，逐步构建采集 → 理解 → 关联 → 演化的知识管理闭环，并通过大语言模型实现知识库的智能检索问答与演化分析。
 
-## 前置要求
+**当前状态**：已完成文件存储与管理底座（v1），包含完整的账号体系、分片上传 / 秒传、分享取件码、操作日志与仪表盘能力。AI 知识管理能力（混合检索问答、知识关联图谱、知识演化追踪）在路线图中规划。
 
-- Node.js 20+
-- `pnpm` 9+
-- Docker Desktop（含 `docker compose`）
+## 功能一览（已实现）
 
-## 一键命令速查
+| 模块 | 说明 |
+| --- | --- |
+| 账号体系 | 注册 / 登录 / JWT 鉴权 / bcrypt 密码加密 |
+| 文件管理 | 上传（分片断点续传）、下载、秒传、新建文件夹、移动、重命名、删除、搜索、列表 / 网格视图 |
+| 文件分享 | 生成取件码、取件码列表 / 撤销、有效期与次数控制、公开取件页 |
+| 操作日志 | 关键操作记录、当前用户隔离、分页查询 |
+| 仪表盘 | 存储占用概览、容量进度、系统状态卡片 |
 
-以下命令均在仓库根目录执行：`/Users/shi/study/frontend/projects/cloud-drive`。
+## 技术栈
 
-### 1) 一键启动
+| 层 | 技术 |
+| --- | --- |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Vue Router + Axios + Vitest |
+| 后端 | Go 1.25 + Gin + GORM + Viper + JWT，自实现分片上传协议 |
+| 数据库 | MySQL 8.4 |
+| 部署 | Docker / Docker Compose，GitHub Actions 自动部署到自有服务器（GHCR 镜像） |
+| AI 规划 | Mastra（TypeScript）AI 服务 + Qdrant 向量检索，与 Go 网关协同 |
 
-- 启动基础设施（MySQL）：
+## 项目结构
 
-```bash
-docker compose --profile infra up -d
+```text
+zhixu/
+├── apps/
+│   ├── zhixu-frontend/   # 前端 SPA（页面 / 路由 / 状态管理 / API 层）
+│   └── zhixu-backend/    # 后端 HTTP API（路由 / 业务服务 / 数据访问 / 鉴权中间件）
+├── docs/                 # 文档中心（brain 全局认知 / tasks 学习日志 / skills 能力沉淀）
+├── design/               # UI 设计稿（HTML 静态稿）
+├── ops/mysql/            # MySQL 初始化与导入脚本
+├── scripts/              # 本地开发辅助脚本
+├── docker-compose.yml    # 编排：MySQL + 后端 + 前端（按需启用 profile）
+└── .github/workflows/    # CI/CD：push main 自动构建镜像并部署
 ```
 
-- 启动后端链路（MySQL + Backend）：
+## 两种启动方式
+
+所有命令在仓库根目录执行。两种方式的配置、端口和开发数据相互独立，可以同时运行。
+
+| 项目 | 本地开发 `pnpm dev` | 全栈 Docker |
+| --- | --- | --- |
+| 配置文件 | `.env.development` | `.env` |
+| 前端地址 | http://localhost:5173 | http://localhost:8080 |
+| 后端宿主机端口 | `9000` | `9001`（容器内 `9000`） |
+| MySQL 宿主机端口 | `3306`（本机服务） | `3307`（容器内 `3306`） |
+| 新环境数据库 | `zhixu` | `zhixu` |
+| MySQL 数据 | 本机 MySQL 服务的数据目录 | `data/mysql` |
+| 文件存储 | `data/dev/files` | 已有 `backend-data` 卷 |
+
+上述为示例配置的默认值。已有 `.env` 中的端口仍会覆盖默认值；要同时运行，请将 Docker 的 `BACKEND_HOST_PORT` 改为 `9001`、`FRONTEND_PORT` 改为 `8080`。容器内部代理仍然使用 `backend:9000`。
+
+### 方式一：本地开发（Run dev）
+
+前置要求：Node.js 22.12+、pnpm 9、Go 1.25、本机 MySQL 8.4。**此模式不依赖 Docker，所有服务均在本机运行。**
+
+macOS 可使用 Homebrew 安装并启动 MySQL（已有本机服务则跳过）：
 
 ```bash
-docker compose --profile backend up -d --build
+brew install mysql@8.4
+brew services start mysql@8.4
+export PATH="$(brew --prefix mysql@8.4)/bin:$PATH"
+# 按提示设置本机 root 密码
+mysql_secure_installation
+mysql -h 127.0.0.1 -P 3306 -u root -p \
+  -e 'CREATE DATABASE IF NOT EXISTS zhixu CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
 ```
 
-- 启动全栈（MySQL + Backend + Frontend）：
-
-```bash
-docker compose --profile full up -d --build
-```
-
-### 2) 一键停止
-
-```bash
-docker compose down
-```
-
-### 3) 一键重建（不清数据）
-
-重建容器和镜像，但保留 `./data/mysql` 持久化数据。
-
-```bash
-docker compose --profile full up -d --build --force-recreate
-```
-
-### 4) 一键恢复（依赖持久化目录）
-
-当你已经有历史数据目录时，直接拉起服务即可恢复：
-
-```bash
-docker compose --profile infra up -d
-```
-
-可选验证：
-
-```bash
-docker compose exec -T mysql mysql -uroot -p123456123456 -D cloud-drive -e "SHOW TABLES;"
-```
-
-### 5) 一键导入外部 SQL
-
-推荐用封装脚本：
-
-```bash
-./scripts/mysql-import.sh ./ops/mysql/import/your_dump.sql cloud-drive
-```
-
-也可直接执行：
-
-```bash
-docker compose exec -T mysql \
-  mysql -uroot -p123456123456 cloud-drive < ./ops/mysql/import/your_dump.sql
-```
-
-### 6) 一键清理
-
-- 仅停服务（保留数据）：
-
-```bash
-docker compose down
-```
-
-- 停服务并删除容器匿名卷（仍保留 `./data/*`）：
-
-```bash
-docker compose down -v
-```
-
-- 彻底清空本项目数据库数据（危险操作）：
-
-```bash
-docker compose down
-find data/mysql -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-```
-
-## 开发运行（本地非容器）
-
-在仓库根目录一键启动后端（:9000）和前端（:5173）：
+首次准备：
 
 ```bash
 pnpm install
-pnpm run dev
+cp .env.development.example .env.development
+# 编辑 .env.development：设置本机 DB_USER / DB_PASSWORD / DB_PORT
 ```
 
-需要本机 MySQL 已启动（如 `docker compose --profile infra up -d`，或任意方式提供的 3306 端口）。
-`Ctrl+C` 会同时停止两端；任一端退出时另一端也会自动停止。
-
-也可以按传统方式分别启动：
+日常启动，在 IDE 中运行根 `package.json` 的 `dev` 脚本，或执行：
 
 ```bash
-cd apps/cloud-drive-backend && go run cmd/server/main.go
-cd apps/cloud-drive-frontend && pnpm dev
+pnpm dev
 ```
 
-## 服务器部署
+脚本连接已启动的本机 MySQL，编译并启动本机 Go 后端，等待健康后启动带热更新的本机 Vite。访问 http://localhost:5173，`/api` 请求代理到本地后端。它不会读取根 Docker `.env`，不会启动任何容器，也不会管理或停止本机 MySQL 服务。
 
-### 首次部署（手动）
-
-1. 在服务器上安装 Docker 和 Docker Compose v2
-2. 使用 SSH 登录服务器，clone 项目到目标目录
-3. 在项目根目录创建 `.env` 文件（参考 `.env.example`，填入生产环境值，特别是以下变量）：
-   - `MYSQL_ROOT_PASSWORD` — MySQL root 密码
-   - `DB_PASSWORD` — 应用数据库密码
-   - `JWT_SECRET` — JWT 密钥
-4. 确保数据目录存在且有正确权限：
+`Ctrl+C` 停止前后端；任一进程退出也会清理另一端。需要停止本机 MySQL 时，由你单独执行：
 
 ```bash
-mkdir -p data/mysql
+brew services stop mysql@8.4
 ```
 
-5. 首次执行以下命令启动服务：
+自定义本地端口时修改 `.env.development` 的 `PORT`、`DEV_FRONTEND_PORT`、`DB_PORT`；代理目标自动跟随后端端口，端口被占用时不会悄悄切换。
+开发文件为 shell 兼容的 `KEY=value` 格式，带空格或特殊字符的值需加引号；不要放入不可信的 shell 命令。
+`DB_USER` 和 `DB_PASSWORD` 必须对应实际本机 MySQL 账号，且该账号需有 `zhixu` 库的建表、建索引与读写权限。脚本不创建数据库账号或数据库；首次建库后，应用表及索引由后端迁移创建。`DB_HOST` 使用 `127.0.0.1`、`localhost` 或 `::1`。
+
+### 方式二：Docker 全栈启动
+
+前置要求：Docker 与 Docker Compose 插件。新环境执行：
 
 ```bash
+cp .env.example .env
+# 编辑 .env：设置一致的 MYSQL_ROOT_PASSWORD / DB_PASSWORD 和强 JWT_SECRET
 docker compose --profile full up -d --build
 ```
 
-### GitHub Secrets 配置
+访问 http://localhost:8080；后端健康检查为 http://localhost:9001/healthz，经过前端代理为 http://localhost:8080/api/healthz。
+`.env.example` 已设置 `COMPOSE_PROFILES=full`，因此 `docker compose up -d --build` 也会启动全栈。只启动 MySQL 可执行 `docker compose up -d mysql`。
 
-在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中添加以下 Secrets：
+MySQL 仅在空数据目录首次初始化所配置的数据库；应用表和查询索引由后端启动迁移创建。停服务用 `docker compose down`，重建不需要清空数据。
 
-| Secret 名称 | 说明 | 示例 |
-|---|---|---|
-| `SERVER_HOST` | 服务器 IP 地址 | `1.2.3.4` |
-| `SERVER_USER` | SSH 用户名 | `root` |
-| `SSH_PRIVATE_KEY` | SSH 私钥内容（id_rsa 的内容） | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `DEPLOY_DIR` | 项目在服务器上的绝对路径 | `/opt/cloud-drive` |
+### 已有环境升级
 
-### 自动部署
+**不要覆盖已有 `.env`，不要清空 `data/mysql` 或删除文件存储卷。项目更名不要求数据库更名。**
 
-- 配置完成后，push 代码到 main 分支会自动触发部署
-- 可在 GitHub 仓库的 **Actions** 标签页查看部署状态
+已有 `cloud-drive` 数据库可继续使用，在原 `.env` 保留：
 
-## 排障说明
-
-### 端口冲突
-
-- 现象：`bind: address already in use`（如 `3306` 被占用）。
-- 解决：临时改映射端口启动。
-
-```bash
-MYSQL_PORT=13306 docker compose --profile infra up -d
+```dotenv
+MYSQL_DATABASE=cloud-drive
+DB_NAME=cloud-drive
 ```
 
-### MySQL 未就绪导致导入失败
+以上仅适用于仍有历史数据的环境，不是当前推荐配置。本地开发、后端及 Docker 的默认数据库名统一为 `zhixu`；本机与容器使用不同的 MySQL 实例和端口，数据仍然隔离。历史环境如需暂时使用旧库，必须显式指定库名，并保留原数据目录、卷名、密码和 JWT 密钥，不依赖默认值。
+升级前备份数据库和文件卷，再执行 `docker compose --profile full up -d --build`；后端自动补建缺失索引，不会更名或删除旧库。
+需要主动迁移到 `zhixu` 时，先停写、备份并导入新库、核对数据与文件关联，再同时切换两个库名配置；保留旧库和备份以便回滚。详见 [MySQL 升级说明](ops/mysql/README.md)。
 
-- 现象：`MySQL container is not running` 或连接失败。
-- 解决：先启动并等待健康检查通过，再执行导入。
+## 常用命令
 
-```bash
-docker compose --profile infra up -d
-docker compose ps
-```
+| 命令 | 说明 |
+| --- | --- |
+| `pnpm install` | 安装前端依赖 |
+| `pnpm build` | 前端生产构建 |
+| `pnpm test` | 前端单元测试（Vitest） |
+| `pnpm test:backend` | 后端单元测试（Go） |
+| `pnpm typecheck` | 前端 `vue-tsc` 类型检查 |
+| `pnpm lint` | ESLint（根目录与前端，只报告不修复） |
+| `pnpm --filter zhixu-frontend format` | 前端 Prettier 格式化 |
+| `pnpm build:backend` | 后端编译检查 |
+| `pnpm dev` | 本机后端 + Vite，连接已运行的本机 MySQL，无 Docker 依赖 |
+| `docker compose config` | 校验编排配置 |
+| `docker compose up -d --build` | 重建并启动服务 |
+| `docker compose ps` / `logs -f` | 查看状态 / 跟踪日志 |
+| `docker compose down` | 停止并移除容器 |
 
-### 初始化 SQL 没执行
-
-- 原因：MySQL 只有在 `./data/mysql` 为空时才会自动执行 `ops/mysql/init/*.sql`。
-- 解决：清空 `data/mysql` 后冷启动，或手动执行初始化 SQL。
-
-## Task5 验证记录（实测）
-
-以下为本次在本机执行并通过的验证（由于 `3306` 冲突，使用了临时端口环境变量）。
-
-### A. 冷启动验证
-
-命令：
-
-```bash
-docker compose down
-mkdir -p data/mysql
-find data/mysql -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-MYSQL_PORT=13306 docker compose --profile infra up -d
-MYSQL_PORT=13306 docker compose exec -T mysql \
-  mysql -uroot -p123456123456 -D cloud-drive \
-  -e "SHOW TABLES; SELECT * FROM bootstrap_records;"
-```
-
-结果摘要：
-
-- `bootstrap_records` 表存在
-- 数据包含 `mysql-initdb-loaded` 记录，说明初始化 SQL 生效
-
-### B. 重建恢复验证
-
-命令：
+## 导入外部 SQL 到 MySQL 容器
 
 ```bash
-MYSQL_PORT=13306 docker compose exec -T mysql \
-  mysql -uroot -p123456123456 -D cloud-drive \
-  -e "INSERT INTO bootstrap_records(tag) VALUES('rebuild-keep') ON DUPLICATE KEY UPDATE tag=VALUES(tag);"
-MYSQL_PORT=13306 docker compose down
-MYSQL_PORT=13306 docker compose --profile infra up -d --force-recreate
-MYSQL_PORT=13306 docker compose exec -T mysql \
-  mysql -uroot -p123456123456 -D cloud-drive \
-  -e "SELECT * FROM bootstrap_records ORDER BY id;"
+./scripts/mysql-import.sh ./ops/mysql/import/your_dump.sql zhixu
 ```
 
-结果摘要：
+说明见 `ops/mysql/README.md`。
 
-- 重建后 `rebuild-keep` 记录仍在
-- 证明 MySQL 数据卷恢复正常
+## 服务器部署
 
-### C. 外部导入验证
+仓库内置 GitHub Actions 工作流 `.github/workflows/deploy.yml`：push 到 `main` 时自动构建 `zhixu-backend` / `zhixu-frontend` 镜像并推送到 GHCR，然后 SSH 登录服务器拉取新镜像重启容器。
 
-命令：
+需要在仓库 Settings → Secrets and variables → Actions 中配置：
 
-```bash
-MYSQL_PORT=13306 ./scripts/mysql-import.sh \
-  ./ops/mysql/import/manual_verify.sql cloud-drive
-MYSQL_PORT=13306 docker compose exec -T mysql \
-  mysql -uroot -p123456123456 -D cloud-drive \
-  -e "SELECT * FROM manual_import_records ORDER BY id DESC LIMIT 3;"
-```
+| Secret | 说明 |
+| --- | --- |
+| `SERVER_HOST` | 服务器 IP 或域名 |
+| `SERVER_USER` | SSH 用户名 |
+| `SSH_PRIVATE_KEY` | SSH 私钥 |
+| `DEPLOY_DIR` | 服务器上存放 `docker-compose.yml` 的目录（例如 `/opt/zhixu`） |
 
-结果摘要：
+> 工作流使用默认 SSH 端口 `22`，用内置 `GITHUB_TOKEN` 登录 GHCR，镜像名来自工作流 `env`，标签为当前提交 SHA。服务器侧需有仓库 checkout、Docker 与 Docker Compose 插件，并预先放好生产 `.env`。升级遵循上面的数据保留步骤。
 
-- 导入脚本输出 `Import completed.`
-- 查询到 `manual-import-ok` 记录，外部导入链路可用
+## 排障
+
+| 现象 | 排查 |
+| --- | --- |
+| 端口冲突 | 本地修改 `.env.development`；Docker 修改 `.env` 的宿主机端口；不要修改容器内部代理端口 |
+| MySQL 未就绪或密码错误 | 本机模式检查 MySQL 服务及 `.env.development` 账号；Docker 模式查看 Compose 日志，已有密码不会随环境变量自动更改 |
+| 旧数据启动提示 Unknown database | 保留原库名，或完成备份迁移后切换；不要清空数据卷 |
+| 容器异常退出 | `docker compose logs -f` 定位；`docker compose up -d --build` 重建 |
+
+## 文档导航
+
+- `AGENTS.md` — AI 协作协议与文档入口
+- `docs/` — 文档中心（全局认知 / 结构说明 / 任务记录 / 技能沉淀）
+- `apps/zhixu-frontend/AGENTS.md`、`apps/zhixu-backend/AGENTS.md` — 子应用导航

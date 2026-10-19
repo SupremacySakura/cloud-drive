@@ -1,4 +1,4 @@
-USE `cloud-drive`;
+USE `zhixu`;
 
 CREATE TABLE IF NOT EXISTS `manual_import_records` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
