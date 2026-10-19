@@ -9,7 +9,11 @@
   ],
   "scripts": {
     "dev": "bash scripts/dev.sh",
+    "dev:ai": "pnpm --filter zhixu-ai dev",
     "build": "pnpm --filter zhixu-frontend build",
+    "build:ai": "pnpm --filter zhixu-ai build",
+    "start:ai": "pnpm --filter zhixu-ai start",
+    "typecheck:ai": "pnpm --filter zhixu-ai typecheck",
     "build:backend": "cd apps/zhixu-backend && go build ./...",
     "typecheck": "pnpm --filter zhixu-frontend typecheck",
     "lint": "eslint \"apps/**/*.{ts,tsx,js,jsx,vue}\"",
